@@ -1,0 +1,315 @@
+from __future__ import annotations
+
+from typing import Iterable, List, Sequence
+
+from russworks.cluster import ClusterRanking, TeamClusterReport
+
+from .models import Slip, SlipLeg, SlipPortfolio
+
+
+class Step5SlipEngine:
+    def generate_slip_portfolio(self, cluster_report: ClusterRanking | None) -> SlipPortfolio:
+        errors = self._validate_cluster_report(cluster_report)
+        if errors:
+            return SlipPortfolio(errors=errors)
+
+        assert cluster_report is not None
+        portfolio = SlipPortfolio(
+            core_slips=self.generate_core_slips(cluster_report),
+            non_superstar_core_slips=self.generate_non_superstar_core_slips(cluster_report),
+            balanced_slips=self.generate_balanced_slips(cluster_report),
+            chaos_slips=self.generate_chaos_slips(cluster_report),
+            contrarian_slips=self.generate_contrarian_slips(cluster_report),
+        )
+        return self._dedupe_and_validate(portfolio)
+
+    def generate_core_slips(self, cluster_report: ClusterRanking) -> List[Slip]:
+        slips: List[Slip] = []
+        for team_report in _ranked_reports(cluster_report)[:2]:
+            candidates = _unique_names([team_report.cluster_captain, *team_report.core_bats, team_report.hidden_cluster_beneficiary])
+            legs = [
+                _leg(team_report, batter, "core", "Core slip leg from strongest TAG/CPS cluster.")
+                for batter in candidates[:3]
+            ]
+            slip = _slip(
+                name=f"{team_report.team} Core Cluster",
+                slip_type="core",
+                legs=legs,
+                justification="Built around the strongest TAG/CPS cluster while keeping formula fit ahead of name value.",
+                cluster=team_report,
+            )
+            if slip:
+                slips.append(slip)
+        return slips
+
+    def generate_non_superstar_core_slips(self, cluster_report: ClusterRanking) -> List[Slip]:
+        slips: List[Slip] = []
+        for team_report in _ranked_reports(cluster_report):
+            value_pool = _unique_names([
+                team_report.hidden_cluster_beneficiary,
+                *team_report.non_superstar_cluster_bats,
+                *team_report.ypi_bats,
+                *team_report.catcher_power_bats,
+            ])
+            candidates = [name for name in value_pool if name != team_report.cluster_captain]
+            if len(candidates) < 2:
+                candidates = value_pool
+            legs = [
+                _leg(team_report, batter, "non-superstar core", "Value-oriented leg backed by Step 4 non-superstar or hidden-beneficiary logic.")
+                for batter in candidates[:3]
+            ]
+            slip = _slip(
+                name=f"{team_report.team} Non-Superstar Core",
+                slip_type="non_superstar_core",
+                legs=legs,
+                justification="Prioritizes hidden cluster beneficiaries, value bats, and Step 4 non-superstar core flags.",
+                cluster=team_report,
+                min_legs=2,
+            )
+            if slip:
+                slips.append(slip)
+        return slips
+
+    def generate_balanced_slips(self, cluster_report: ClusterRanking) -> List[Slip]:
+        reports = _ranked_reports(cluster_report)
+        if not reports:
+            return []
+
+        slips: List[Slip] = []
+        top = reports[0]
+        candidates = _unique_names([
+            top.cluster_captain,
+            top.hidden_cluster_beneficiary,
+            *(top.core_bats[:2]),
+            *(top.non_superstar_cluster_bats[:2]),
+        ])
+        legs = [
+            _leg(top, batter, "balanced", "Balanced leg combining elite cluster strength with value support.")
+            for batter in candidates[:3]
+        ]
+        slip = _slip(
+            name=f"{top.team} Balanced Formula",
+            slip_type="balanced",
+            legs=legs,
+            justification="Mixes elite cluster bats and value bats from the highest-ranked cluster.",
+            cluster=top,
+        )
+        if slip:
+            slips.append(slip)
+
+        if len(reports) > 1:
+            second = reports[1]
+            cross_candidates = _unique_names([
+                top.cluster_captain,
+                top.hidden_cluster_beneficiary,
+                second.cluster_captain,
+                second.hidden_cluster_beneficiary,
+            ])
+            legs = []
+            for batter in cross_candidates[:4]:
+                source = top if batter in _all_report_names(top) else second
+                legs.append(_leg(source, batter, "balanced", "Cross-cluster balance leg preserving TAG/CPS context."))
+            slip = _slip(
+                name="Cross-Cluster Balanced Formula",
+                slip_type="balanced",
+                legs=legs,
+                justification="Balances the top-ranked cluster with an overlooked bat from the next viable cluster.",
+                cluster=top,
+                min_legs=3,
+            )
+            if slip:
+                slips.append(slip)
+        return slips
+
+    def generate_chaos_slips(self, cluster_report: ClusterRanking) -> List[Slip]:
+        slips: List[Slip] = []
+        for team_report in _ranked_reports(cluster_report):
+            candidates = _unique_names([
+                *team_report.catcher_power_bats,
+                *team_report.ypi_bats,
+                *team_report.secondary_bats,
+                team_report.hidden_cluster_beneficiary,
+            ])
+            legs = [
+                _leg(team_report, batter, "chaos", "Higher-variance leg allowed through catcher, YPI, veteran-bounce-compatible, or cluster-extension logic.")
+                for batter in candidates[:3]
+            ]
+            slip = _slip(
+                name=f"{team_report.team} Chaos Cluster",
+                slip_type="chaos",
+                legs=legs,
+                justification="Higher-variance construction that allows catcher power, YPI, veteran bounce, and cluster-extension profiles.",
+                cluster=team_report,
+                min_legs=2,
+            )
+            if slip:
+                slips.append(slip)
+        return slips
+
+    def generate_contrarian_slips(self, cluster_report: ClusterRanking) -> List[Slip]:
+        slips: List[Slip] = []
+        reports = list(reversed(_ranked_reports(cluster_report)))
+        for team_report in reports[:2]:
+            candidates = _unique_names([
+                team_report.hidden_cluster_beneficiary,
+                *team_report.secondary_bats,
+                *team_report.non_superstar_cluster_bats,
+                *team_report.catcher_power_bats,
+                *team_report.ypi_bats,
+            ])
+            legs = [
+                _leg(team_report, batter, "contrarian", "Lower-ownership style leg from an overlooked or secondary cluster path.")
+                for batter in candidates[:3]
+            ]
+            slip = _slip(
+                name=f"{team_report.team} Contrarian Cluster",
+                slip_type="contrarian",
+                legs=legs,
+                justification="Lower-ownership style construction that leverages overlooked cluster paths.",
+                cluster=team_report,
+                min_legs=2,
+            )
+            if slip:
+                slips.append(slip)
+        return slips
+
+    def _validate_cluster_report(self, cluster_report: ClusterRanking | None) -> List[str]:
+        if cluster_report is None:
+            return ["Step 5 requires Step 4 cluster results."]
+        errors: List[str] = []
+        if not cluster_report.success:
+            errors.append("Step 5 blocked because Step 4 results contain errors.")
+            errors.extend(cluster_report.errors)
+        if not cluster_report.ranked_teams:
+            errors.append("Step 5 requires at least one ranked Step 4 team cluster.")
+        return errors
+
+    def _dedupe_and_validate(self, portfolio: SlipPortfolio) -> SlipPortfolio:
+        seen: set[tuple[str, ...]] = set()
+        errors: List[str] = []
+        core = self._dedupe_slips(portfolio.core_slips, seen, errors)
+        non_superstar = self._dedupe_slips(portfolio.non_superstar_core_slips, seen, errors)
+        balanced = self._dedupe_slips(portfolio.balanced_slips, seen, errors)
+        chaos = self._dedupe_slips(portfolio.chaos_slips, seen, errors)
+        contrarian = self._dedupe_slips(portfolio.contrarian_slips, seen, errors)
+        return SlipPortfolio(
+            core_slips=core,
+            non_superstar_core_slips=non_superstar,
+            balanced_slips=balanced,
+            chaos_slips=chaos,
+            contrarian_slips=contrarian,
+            errors=errors,
+        )
+
+    def _dedupe_slips(self, slips: Sequence[Slip], seen: set[tuple[str, ...]], errors: List[str]) -> List[Slip]:
+        deduped: List[Slip] = []
+        for slip in slips:
+            batter_key = tuple(sorted(leg.batter for leg in slip.legs))
+            if len(batter_key) != len(set(batter_key)):
+                errors.append(f"Duplicate batter found in slip: {slip.name}")
+                continue
+            if batter_key in seen:
+                continue
+            if not slip.justification or any(not leg.justification for leg in slip.legs):
+                errors.append(f"Slip missing justification metadata: {slip.name}")
+                continue
+            seen.add(batter_key)
+            deduped.append(slip)
+        return deduped
+
+
+def generate_slip_portfolio(cluster_report: ClusterRanking | None) -> SlipPortfolio:
+    return Step5SlipEngine().generate_slip_portfolio(cluster_report)
+
+
+def generate_core_slips(cluster_report: ClusterRanking) -> List[Slip]:
+    return Step5SlipEngine().generate_core_slips(cluster_report)
+
+
+def generate_non_superstar_core_slips(cluster_report: ClusterRanking) -> List[Slip]:
+    return Step5SlipEngine().generate_non_superstar_core_slips(cluster_report)
+
+
+def generate_balanced_slips(cluster_report: ClusterRanking) -> List[Slip]:
+    return Step5SlipEngine().generate_balanced_slips(cluster_report)
+
+
+def generate_chaos_slips(cluster_report: ClusterRanking) -> List[Slip]:
+    return Step5SlipEngine().generate_chaos_slips(cluster_report)
+
+
+def generate_contrarian_slips(cluster_report: ClusterRanking) -> List[Slip]:
+    return Step5SlipEngine().generate_contrarian_slips(cluster_report)
+
+
+def _ranked_reports(cluster_report: ClusterRanking) -> List[TeamClusterReport]:
+    return sorted(cluster_report.ranked_teams, key=lambda report: report.total_cluster_score, reverse=True)
+
+
+def _unique_names(names: Iterable[str]) -> List[str]:
+    unique: List[str] = []
+    for name in names:
+        if name and name not in unique:
+            unique.append(name)
+    return unique
+
+
+def _leg(report: TeamClusterReport, batter: str, role: str, justification: str) -> SlipLeg:
+    return SlipLeg(
+        batter=batter,
+        team=report.team,
+        tag=report.tag_grade,
+        cps=report.cps_grade,
+        russ_score=report.total_cluster_score,
+        slip_role=role,
+        justification=justification,
+    )
+
+
+def _slip(
+    *,
+    name: str,
+    slip_type: str,
+    legs: Sequence[SlipLeg],
+    justification: str,
+    cluster: TeamClusterReport,
+    min_legs: int = 2,
+) -> Slip | None:
+    unique_legs = _unique_legs(legs)
+    if len(unique_legs) < min_legs:
+        return None
+    return Slip(
+        name=name,
+        slip_type=slip_type,
+        legs=unique_legs,
+        justification=justification,
+        metadata={
+            "team": cluster.team,
+            "opponent": cluster.opponent,
+            "cluster_strength": cluster.cluster_strength_label,
+            "cluster_score": f"{cluster.total_cluster_score:.2f}",
+        },
+    )
+
+
+def _unique_legs(legs: Sequence[SlipLeg]) -> List[SlipLeg]:
+    unique: List[SlipLeg] = []
+    seen: set[str] = set()
+    for leg in legs:
+        if leg.batter in seen:
+            continue
+        seen.add(leg.batter)
+        unique.append(leg)
+    return unique
+
+
+def _all_report_names(report: TeamClusterReport) -> set[str]:
+    return set(_unique_names([
+        report.cluster_captain,
+        report.hidden_cluster_beneficiary,
+        *report.core_bats,
+        *report.secondary_bats,
+        *report.non_superstar_cluster_bats,
+        *report.catcher_power_bats,
+        *report.ypi_bats,
+    ]))
