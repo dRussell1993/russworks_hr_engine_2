@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from statistics import mean
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
-from .models import Batter, BatterScore, Game, Pitcher, RussTier, TeamClusterScore
+from ..models import Batter, BatterScore, Game, Pitcher, RussTier, TeamClusterScore
+from .cps import ClusterParticipationInput, ClusterParticipationScore, calculate_cps as calculate_cps_module
+from .environment import EnvironmentScore, EnvironmentScoreInput, calculate_environment_score
+from .lstm import LineupSlotTrendInput, LineupSlotTrendMultiplier, calculate_lstm
+from .pvs import PitchVulnerabilityInput, PitchVulnerabilityScore, calculate_pvs
+from .tag import TeamAttackGrade, TeamAttackGradeInput, calculate_tag as calculate_tag_module, grade_score
+from .umpire import UmpireScore, UmpireScoreInput, calculate_umpire_score
 
 
 def grade(score: float) -> str:
@@ -129,7 +135,6 @@ def calculate_pitcher_collision(b: Batter, pitcher: Pitcher, game: Game) -> floa
                 score += 4
             if hm.distance and hm.distance >= 400:
                 score += 3
-    # fallback from pitch mix score on lineup screen
     if b.pitch_mix_score >= 7:
         score += 8
     elif b.pitch_mix_score >= 6:
@@ -184,7 +189,6 @@ def score_batter(game: Game, b: Batter, team_cluster: TeamClusterScore) -> Batte
     chaos = calculate_chaos_cluster(b, team_cluster.tag_grade, team_cluster.cps_grade)
     collision = calculate_pitcher_collision(b, pitcher, game)
     pit = pitcher_attackability(pitcher)
-    # Core score: HR% is important but not the only driver.
     score = 35
     score += b.hr_pct * 1.15
     score += lpas * 0.85
@@ -248,3 +252,27 @@ def score_game(game: Game) -> List[BatterScore]:
     for b in sorted(game.batters, key=lambda x: (x.team, x.lineup_slot)):
         scores.append(score_batter(game, b, clusters[b.team]))
     return scores
+
+
+__all__ = [
+    "ClusterParticipationInput",
+    "ClusterParticipationScore",
+    "EnvironmentScore",
+    "EnvironmentScoreInput",
+    "LineupSlotTrendInput",
+    "LineupSlotTrendMultiplier",
+    "PitchVulnerabilityInput",
+    "PitchVulnerabilityScore",
+    "TeamAttackGrade",
+    "TeamAttackGradeInput",
+    "UmpireScore",
+    "UmpireScoreInput",
+    "calculate_cps_module",
+    "calculate_environment_score",
+    "calculate_lstm",
+    "calculate_pvs",
+    "calculate_tag_module",
+    "calculate_team_clusters",
+    "calculate_umpire_score",
+    "score_game",
+]
