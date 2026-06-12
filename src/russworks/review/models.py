@@ -33,6 +33,9 @@ class BatterReview:
     ypi_score: float = 0.0
     ypi_confidence: float = 0.0
     ypi_grade: str = "Weak"
+    veteran_bounce_score: float = 0.0
+    veteran_bounce_confidence: float = 0.0
+    veteran_bounce_grade: str = "Weak"
 
 
 @dataclass(frozen=True)
