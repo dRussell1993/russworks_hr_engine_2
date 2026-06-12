@@ -66,12 +66,14 @@ class PostMortemEngine:
             if _leg_key(leg) not in actual_key_set
         ]
         new_false_positives = [entry for entry in (self._false_positive_entry(loser) for loser in new_losers) if entry]
+        new_adjustments = self._build_adjustment_entries(new_winners, new_losers, new_false_positives)
+        new_recommendations = self._build_calibration_recommendations(new_adjustments)
 
         self.winner_log.extend(new_winners)
         self.loser_log.extend(new_losers)
         self.false_positive_log.extend(new_false_positives)
-        self.adjustment_log.extend(self._build_adjustment_entries(new_winners, new_losers, new_false_positives))
-        self.calibration_recommendations.extend(self._build_calibration_recommendations(self.adjustment_log))
+        self.adjustment_log.extend(new_adjustments)
+        self.calibration_recommendations.extend(new_recommendations)
         return self._report()
 
     def generate_winner_log(self) -> List[WinnerLogEntry]:
