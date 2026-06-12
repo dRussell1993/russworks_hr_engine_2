@@ -1,0 +1,2 @@
+game_id,date,away_team,home_team,park,temperature_f,wind_mph,wind_direction,humidity_pct,roof,weather_hr_pct,weather_distance_ft,park_hr_factor,umpire_name,umpire_zone_type,called_strike_rate,accuracy,consistency,run_lean
+TEX-KC-2026-06-11,2026-06-11,TEX,KC,Kauffman Stadium,86,18,out to CF,63,open,42,24.7,0,Chris Segal,Stingy Walks,32.6,92.5,40,0
