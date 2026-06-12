@@ -45,12 +45,15 @@ class Step5SlipEngine:
     def generate_non_superstar_core_slips(self, cluster_report: ClusterRanking) -> List[Slip]:
         slips: List[Slip] = []
         for team_report in _ranked_reports(cluster_report):
-            candidates = _unique_names([
+            value_pool = _unique_names([
                 team_report.hidden_cluster_beneficiary,
                 *team_report.non_superstar_cluster_bats,
                 *team_report.ypi_bats,
                 *team_report.catcher_power_bats,
             ])
+            candidates = [name for name in value_pool if name != team_report.cluster_captain]
+            if len(candidates) < 2:
+                candidates = value_pool
             legs = [
                 _leg(team_report, batter, "non-superstar core", "Value-oriented leg backed by Step 4 non-superstar or hidden-beneficiary logic.")
                 for batter in candidates[:3]
