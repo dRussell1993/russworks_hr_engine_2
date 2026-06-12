@@ -19,11 +19,15 @@ class TeamClusterReport:
     non_superstar_cluster_bats: List[str] = field(default_factory=list)
     catcher_power_bats: List[str] = field(default_factory=list)
     ypi_bats: List[str] = field(default_factory=list)
+    veteran_bounce_bats: List[str] = field(default_factory=list)
     batter_count: int = 0
     notes: List[str] = field(default_factory=list)
     ypi_score: float = 0.0
     ypi_confidence: float = 0.0
     ypi_grade: str = "Weak"
+    veteran_bounce_score: float = 0.0
+    veteran_bounce_confidence: float = 0.0
+    veteran_bounce_grade: str = "Weak"
 
 
 @dataclass(frozen=True)
