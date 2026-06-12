@@ -11,6 +11,7 @@ from .models import ClusterRanking, TeamClusterReport
 
 
 _A_LEVEL_GRADES = {"A", "A+"}
+_YPI_GRADE_RANK = {"Elite": 5, "Strong": 4, "Emerging": 3, "Neutral": 2, "Weak": 1}
 
 
 class Step4ClusterEngine:
@@ -64,6 +65,9 @@ class Step4ClusterEngine:
 
         tag_score = mean(review.tag_contribution for review in reviews)
         cps_score = mean(review.cps_contribution for review in reviews)
+        ypi_score = max(review.ypi_score for review in reviews)
+        ypi_confidence = mean(review.ypi_confidence for review in reviews)
+        ypi_grade = _top_ypi_grade(reviews)
         tag_grade = grade_score(tag_score)
         cps_grade = grade_score(cps_score)
         total_cluster_score = _cluster_score(reviews, tag_score, cps_score, tag_grade, cps_grade)
@@ -91,7 +95,10 @@ class Step4ClusterEngine:
             catcher_power_bats=[review.batter_name for review in catcher_power],
             ypi_bats=[review.batter_name for review in ypi],
             batter_count=len(reviews),
-            notes=_cluster_notes(tag_grade, cps_grade, reviews, total_cluster_score),
+            notes=_cluster_notes(tag_grade, cps_grade, reviews, total_cluster_score, ypi_grade),
+            ypi_score=ypi_score,
+            ypi_confidence=ypi_confidence,
+            ypi_grade=ypi_grade,
         )
 
     def generate_cluster_report(self, step3_results: BatterReviewResult) -> ClusterRanking:
@@ -152,6 +159,7 @@ def _cluster_score(
     avg_environment = mean(review.environment_score for review in reviews)
     avg_umpire = mean(review.umpire_score for review in reviews)
     avg_russ = mean(review.final_russ_score for review in reviews)
+    max_ypi = max((review.ypi_score for review in reviews), default=0.0)
     special_depth = min(
         8.0,
         sum(
@@ -172,6 +180,7 @@ def _cluster_score(
         + avg_lstm * 0.18
         + avg_environment * 0.25
         + avg_umpire * 0.10
+        + max_ypi * 0.06
         + special_depth
         + elite_boost
     )
@@ -183,11 +192,16 @@ def _batter_cluster_score(review: BatterReview) -> float:
     score += review.pvs_contribution * 1.10
     score += review.lstm_score * 0.45
     score += review.hr_pct * 0.35
+    score += review.ypi_score * 0.12
     score += 5.0 if review.non_superstar_core_flag else 0.0
     score += 4.0 if review.weak_spot_collision_flag else 0.0
     score += 3.0 if review.ypi_flag else 0.0
     score += 3.0 if review.catcher_power_flag else 0.0
     return round(score, 2)
+
+
+def _top_ypi_grade(reviews: Sequence[BatterReview]) -> str:
+    return max((review.ypi_grade for review in reviews), key=lambda grade: _YPI_GRADE_RANK.get(grade, 0), default="Weak")
 
 
 def _opponent_label(reviews: Sequence[BatterReview]) -> str:
@@ -230,6 +244,7 @@ def _cluster_notes(
     cps_grade: str,
     reviews: Sequence[BatterReview],
     total_cluster_score: float,
+    ypi_grade: str,
 ) -> List[str]:
     notes: List[str] = []
     if tag_grade in _A_LEVEL_GRADES and cps_grade in _A_LEVEL_GRADES:
@@ -244,6 +259,8 @@ def _cluster_notes(
         notes.append("catcher power bats identified")
     if any(review.ypi_flag for review in reviews):
         notes.append("YPI bats identified")
+    if ypi_grade in {"Elite", "Strong", "Emerging"}:
+        notes.append(f"{ypi_grade} YPI cluster pressure")
     if total_cluster_score >= 90:
         notes.append("Step 4 primary cluster candidate")
     return notes
