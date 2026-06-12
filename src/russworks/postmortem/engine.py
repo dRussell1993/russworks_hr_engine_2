@@ -227,32 +227,35 @@ class PostMortemEngine:
         )
 
 
+_DEFAULT_ENGINE = PostMortemEngine()
+
+
 def ingest_actual_home_runs(actual_hr_entries: Iterable[Any]) -> List[ActualHomeRunEntry]:
-    return PostMortemEngine().ingest_actual_home_runs(actual_hr_entries)
+    return _DEFAULT_ENGINE.ingest_actual_home_runs(actual_hr_entries)
 
 
 def compare_to_step5_portfolio(portfolio: SlipPortfolio | None, actual_home_runs: Iterable[Any]) -> PostMortemReport:
     return PostMortemEngine().compare_to_step5_portfolio(portfolio, actual_home_runs)
 
 
-def generate_winner_log(engine: PostMortemEngine) -> List[WinnerLogEntry]:
-    return engine.generate_winner_log()
+def generate_winner_log(engine: PostMortemEngine | None = None) -> List[WinnerLogEntry]:
+    return (engine or _DEFAULT_ENGINE).generate_winner_log()
 
 
-def generate_loser_log(engine: PostMortemEngine) -> List[LoserLogEntry]:
-    return engine.generate_loser_log()
+def generate_loser_log(engine: PostMortemEngine | None = None) -> List[LoserLogEntry]:
+    return (engine or _DEFAULT_ENGINE).generate_loser_log()
 
 
-def generate_false_positive_log(engine: PostMortemEngine) -> List[FalsePositiveEntry]:
-    return engine.generate_false_positive_log()
+def generate_false_positive_log(engine: PostMortemEngine | None = None) -> List[FalsePositiveEntry]:
+    return (engine or _DEFAULT_ENGINE).generate_false_positive_log()
 
 
-def generate_adjustment_log(engine: PostMortemEngine) -> List[AdjustmentLogEntry]:
-    return engine.generate_adjustment_log()
+def generate_adjustment_log(engine: PostMortemEngine | None = None) -> List[AdjustmentLogEntry]:
+    return (engine or _DEFAULT_ENGINE).generate_adjustment_log()
 
 
-def generate_calibration_recommendations(engine: PostMortemEngine) -> List[CalibrationRecommendation]:
-    return engine.generate_calibration_recommendations()
+def generate_calibration_recommendations(engine: PostMortemEngine | None = None) -> List[CalibrationRecommendation]:
+    return (engine or _DEFAULT_ENGINE).generate_calibration_recommendations()
 
 
 def _normalize_actual_hr_entry(raw: Any) -> ActualHomeRunEntry:
