@@ -12,6 +12,7 @@ from russworks.scoring.lstm import LineupSlotTrendInput, calculate_lstm
 from russworks.scoring.pvs import PitchVulnerabilityInput, calculate_pvs
 from russworks.scoring.tag import TeamAttackGrade, TeamAttackGradeInput, calculate_tag
 from russworks.scoring.umpire import UmpireScore, UmpireScoreInput, calculate_umpire_score
+from russworks.scoring.veteran import VeteranBounceEngine, VeteranProfile
 from russworks.scoring.weakspot import PitcherWeakSpotProfile, WeakSpotCollisionEngine, WeakSpotProfile
 from russworks.scoring.ypi import YPIEngine, YPIProfile
 
@@ -38,6 +39,7 @@ class Step3ReviewEngine:
         self.weights = weights or ScoringWeights.defaults()
         self.weak_spot_collision_engine = WeakSpotCollisionEngine()
         self.ypi_engine = YPIEngine()
+        self.veteran_bounce_engine = VeteranBounceEngine()
 
     def review_all_batters(self, game: GameIntake) -> BatterReviewResult:
         queue = validate_step2_intake(game)
@@ -93,10 +95,11 @@ class Step3ReviewEngine:
                 weights=self.weights,
             )
         )
+        veteran_bounce = self.veteran_bounce_engine.score_profile(_veteran_profile(batter, tag, cps))
 
         ypi_flag = _has_any_tag(batter, {"ypi", "young", "prospect", "rookie", "small sample", "speed-power"}) or ypi.ypi_grade in {"Elite", "Strong", "Emerging"}
         catcher_power_flag = _has_any_tag(batter, {"catcher"})
-        veteran_bounce_flag = _has_any_tag(batter, {"veteran", "superstar", "5-tool", "power threat"})
+        veteran_bounce_flag = _has_any_tag(batter, {"veteran", "superstar", "5-tool", "power threat"}) or veteran_bounce.grade in {"Elite", "Strong", "Moderate"}
         weak_spot_collision_flag = pvs.components.get("weak_spot_collision", 0.0) > 0 or collision.collision_score >= 25
         non_superstar_core_flag = not _has_any_tag(batter, {"superstar"}) and (
             pvs.label in {"strong", "elite"} or tag.grade.startswith("A") or cps.grade.startswith("A")
@@ -134,13 +137,24 @@ class Step3ReviewEngine:
             weak_spot_collision_flag=weak_spot_collision_flag,
             final_russ_score=final_score,
             russ_tier=_tier(final_score),
-            notes=_review_notes(ypi_flag, catcher_power_flag, veteran_bounce_flag, non_superstar_core_flag, weak_spot_collision_flag, ypi.ypi_grade),
+            notes=_review_notes(
+                ypi_flag,
+                catcher_power_flag,
+                veteran_bounce_flag,
+                non_superstar_core_flag,
+                weak_spot_collision_flag,
+                ypi.ypi_grade,
+                veteran_bounce.grade,
+            ),
             weak_spot_collision_score=collision.collision_score,
             weak_spot_collision_confidence=collision.collision_confidence,
             weak_spot_collision_grade=collision.collision_grade,
             ypi_score=ypi.ypi_score,
             ypi_confidence=ypi.ypi_confidence,
             ypi_grade=ypi.ypi_grade,
+            veteran_bounce_score=veteran_bounce.veteran_bounce_score,
+            veteran_bounce_confidence=veteran_bounce.confidence,
+            veteran_bounce_grade=veteran_bounce.grade,
         )
 
     def _build_context(self, game: GameIntake, queue: ReviewQueue) -> Step3GameContext:
@@ -308,6 +322,34 @@ def _ypi_profile(batter: BatterIntake) -> YPIProfile:
     )
 
 
+def _veteran_profile(batter: BatterIntake, tag: TeamAttackGrade, cps: ClusterParticipationScore) -> VeteranProfile:
+    tags = " ".join(batter.tags).lower()
+    is_veteran = any(key in tags for key in ["veteran", "superstar", "5-tool", "power threat", "bounce", "drought"])
+    has_drought = any(key in tags for key in ["drought", "cold", "no hr", "due"])
+    age = 34 if is_veteran else 27
+    service_time = 8.0 if is_veteran else 3.0
+    historical_power = max(batter.hr_pct + (4.0 if is_veteran else 0.0), 0.0)
+    historical_barrel = max(6.0, batter.pitch_mix_score + (4.0 if is_veteran else 1.0))
+    historical_hard_hit = max(35.0, 36.0 + batter.pitch_mix_score + (5.0 if is_veteran else 0.0))
+    current_barrel = max(0.0, batter.pitch_mix_score + (3.0 if is_veteran else 0.0))
+    current_hard_hit = max(0.0, 35.0 + batter.pitch_mix_score + (4.0 if is_veteran else 0.0))
+    return VeteranProfile(
+        batter_name=batter.name,
+        age=age,
+        mlb_service_time=service_time,
+        historical_hr_production=historical_power,
+        historical_barrel_rate=historical_barrel,
+        historical_hard_hit_rate=historical_hard_hit,
+        current_barrel_rate=current_barrel,
+        current_hard_hit_rate=current_hard_hit,
+        recent_hr_drought=10.0 if has_drought else 0.0,
+        lineup_slot=batter.lineup_slot,
+        team_cluster_quality=(tag.score + cps.score) / 2.0,
+        recent_exit_velocity_trend=max(0.0, batter.pitch_mix_score - 5.0),
+        is_superstar="superstar" in tags,
+    )
+
+
 def _has_any_tag(batter: BatterIntake, keys: set[str]) -> bool:
     tags = " ".join(batter.tags).lower()
     return any(key in tags for key in keys)
@@ -361,6 +403,7 @@ def _review_notes(
     non_superstar_core_flag: bool,
     weak_spot_collision_flag: bool,
     ypi_grade: str,
+    veteran_bounce_grade: str,
 ) -> List[str]:
     notes = []
     if ypi_flag:
@@ -368,7 +411,7 @@ def _review_notes(
     if catcher_power_flag:
         notes.append("Catcher Power")
     if veteran_bounce_flag:
-        notes.append("Veteran Bounce")
+        notes.append(f"Veteran Bounce {veteran_bounce_grade}")
     if non_superstar_core_flag:
         notes.append("Non-Superstar Core")
     if weak_spot_collision_flag:
