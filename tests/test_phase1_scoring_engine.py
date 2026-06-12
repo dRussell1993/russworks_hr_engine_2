@@ -1,13 +1,13 @@
 from dataclasses import is_dataclass
 
-from russworks.cps import ClusterParticipationInput, ClusterParticipationScore, calculate_cps
-from russworks.environment import EnvironmentScore, EnvironmentScoreInput, calculate_environment_score
-from russworks.formula_config import ScoringWeights
-from russworks.lstm import LineupSlotTrendInput, LineupSlotTrendMultiplier, calculate_lstm
+from russworks.config.weights import ScoringWeights
 from russworks.main import sample_game
-from russworks.pvs import PitchVulnerabilityInput, PitchVulnerabilityScore, calculate_pvs
-from russworks.tag import TeamAttackGrade, TeamAttackGradeInput, calculate_tag
-from russworks.umpire import UmpireScore, UmpireScoreInput, calculate_umpire_score
+from russworks.scoring.cps import ClusterParticipationInput, ClusterParticipationScore, calculate_cps
+from russworks.scoring.environment import EnvironmentScore, EnvironmentScoreInput, calculate_environment_score
+from russworks.scoring.lstm import LineupSlotTrendInput, LineupSlotTrendMultiplier, calculate_lstm
+from russworks.scoring.pvs import PitchVulnerabilityInput, PitchVulnerabilityScore, calculate_pvs
+from russworks.scoring.tag import TeamAttackGrade, TeamAttackGradeInput, calculate_tag
+from russworks.scoring.umpire import UmpireScore, UmpireScoreInput, calculate_umpire_score
 
 
 def test_phase1_result_models_are_dataclasses():
