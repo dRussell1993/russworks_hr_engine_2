@@ -1,7 +1,5 @@
 from dataclasses import is_dataclass
 
-import pytest
-
 from russworks.intake import (
     BatterIntake,
     GameIntake,
@@ -105,8 +103,12 @@ def test_no_shortcuts_gate_can_raise_validation_error():
     game = _complete_game()
     game.home_team.batters[8] = BatterIntake("Unconfirmed Batter", "KC", lineup_slot=9, confirmed=False)
 
-    with pytest.raises(IntakeValidationError) as exc:
+    try:
         validate_step2_intake(game, raise_on_error=True)
+    except IntakeValidationError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected IntakeValidationError")
 
-    assert "Step 2 blocked" in str(exc.value)
-    assert "confirmed_lineup" in str(exc.value)
+    assert "Step 2 blocked" in message
+    assert "confirmed_lineup" in message
