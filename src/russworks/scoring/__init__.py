@@ -4,6 +4,7 @@ from statistics import mean
 from typing import Dict, List, Tuple
 
 from ..models import Batter, BatterScore, Game, Pitcher, RussTier, TeamClusterScore
+from .catcher import CatcherPowerEngine, CatcherPowerResult, CatcherProfile, calculate_catcher_power_score
 from .cps import ClusterParticipationInput, ClusterParticipationScore, calculate_cps as calculate_cps_module
 from .environment import EnvironmentScore, EnvironmentScoreInput, calculate_environment_score
 from .lstm import LineupSlotTrendInput, LineupSlotTrendMultiplier, calculate_lstm
@@ -262,6 +263,9 @@ def score_game(game: Game) -> List[BatterScore]:
 
 
 __all__ = [
+    "CatcherPowerEngine",
+    "CatcherPowerResult",
+    "CatcherProfile",
     "ClusterParticipationInput",
     "ClusterParticipationScore",
     "CollisionResult",
@@ -278,6 +282,7 @@ __all__ = [
     "UmpireScoreInput",
     "WeakSpotCollisionEngine",
     "WeakSpotProfile",
+    "calculate_catcher_power_score",
     "calculate_cps_module",
     "calculate_environment_score",
     "calculate_lstm",
