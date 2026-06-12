@@ -12,6 +12,7 @@ from russworks.scoring.lstm import LineupSlotTrendInput, calculate_lstm
 from russworks.scoring.pvs import PitchVulnerabilityInput, calculate_pvs
 from russworks.scoring.tag import TeamAttackGrade, TeamAttackGradeInput, calculate_tag
 from russworks.scoring.umpire import UmpireScore, UmpireScoreInput, calculate_umpire_score
+from russworks.scoring.weakspot import PitcherWeakSpotProfile, WeakSpotCollisionEngine, WeakSpotProfile
 
 from .models import BatterReview, BatterReviewResult
 
@@ -34,6 +35,7 @@ class Step3ReviewError(RuntimeError):
 class Step3ReviewEngine:
     def __init__(self, weights: ScoringWeights | None = None) -> None:
         self.weights = weights or ScoringWeights.defaults()
+        self.weak_spot_collision_engine = WeakSpotCollisionEngine()
 
     def review_all_batters(self, game: GameIntake) -> BatterReviewResult:
         queue = validate_step2_intake(game)
@@ -72,6 +74,10 @@ class Step3ReviewEngine:
                 weights=self.weights,
             )
         )
+        collision = self.weak_spot_collision_engine.score_collision(
+            _batter_collision_profile(batter, opponent_pitcher.name, game),
+            _pitcher_collision_profile(opponent_pitcher, game),
+        )
         tag = game_context.tag_by_team[batter.team]
         cps = game_context.cps_by_team[batter.team]
         lstm = calculate_lstm(
@@ -88,7 +94,7 @@ class Step3ReviewEngine:
         ypi_flag = _has_any_tag(batter, {"ypi", "young", "prospect", "rookie", "small sample", "speed-power"})
         catcher_power_flag = _has_any_tag(batter, {"catcher"})
         veteran_bounce_flag = _has_any_tag(batter, {"veteran", "superstar", "5-tool", "power threat"})
-        weak_spot_collision_flag = pvs.components.get("weak_spot_collision", 0.0) > 0
+        weak_spot_collision_flag = pvs.components.get("weak_spot_collision", 0.0) > 0 or collision.collision_score >= 25
         non_superstar_core_flag = not _has_any_tag(batter, {"superstar"}) and (
             pvs.label in {"strong", "elite"} or tag.grade.startswith("A") or cps.grade.startswith("A")
         )
@@ -126,6 +132,9 @@ class Step3ReviewEngine:
             final_russ_score=final_score,
             russ_tier=_tier(final_score),
             notes=_review_notes(ypi_flag, catcher_power_flag, veteran_bounce_flag, non_superstar_core_flag, weak_spot_collision_flag),
+            weak_spot_collision_score=collision.collision_score,
+            weak_spot_collision_confidence=collision.collision_confidence,
+            weak_spot_collision_grade=collision.collision_grade,
         )
 
     def _build_context(self, game: GameIntake, queue: ReviewQueue) -> Step3GameContext:
@@ -239,6 +248,38 @@ def _environment_with_umpire(environment: GameEnvironment, game: GameIntake) -> 
         weather_distance_ft=environment.weather_distance_ft,
         park_hr_factor=environment.park_hr_factor,
         umpire=game.umpire,
+    )
+
+
+def _batter_collision_profile(batter: BatterIntake, opponent_pitcher_name: str, game: GameIntake) -> WeakSpotProfile:
+    matching_hr = [
+        matchup
+        for matchup in game.hr_matchups
+        if matchup.batter_name.lower() == batter.name.lower()
+        and matchup.pitcher_name.lower() == opponent_pitcher_name.lower()
+    ]
+    pitches = {matchup.pitch: max((matchup.matchup_score or batter.pitch_mix_score) * 10.0, 1.0) for matchup in matching_hr if matchup.pitch}
+    zones = [matchup.notes or matchup.pitch for matchup in matching_hr if matchup.notes or matchup.pitch]
+    return WeakSpotProfile(
+        batter_name=batter.name,
+        hot_zones=zones,
+        barrel_zones=zones,
+        pitch_type_performance=pitches or {"overall": batter.pitch_mix_score * 10.0},
+    )
+
+
+def _pitcher_collision_profile(pitcher: Pitcher, game: GameIntake) -> PitcherWeakSpotProfile:
+    weak_spots = [weak_spot for weak_spot in game.weak_spots if weak_spot.pitcher_name.lower() == pitcher.name.lower()]
+    weak_zones = [weak_spot.zone or weak_spot.pitch for weak_spot in weak_spots]
+    attack_locations = [weak_spot.notes for weak_spot in weak_spots if weak_spot.notes] or weak_zones
+    pitch_mix = {weak_spot.pitch: max(weak_spot.weakness_score * 10.0, 1.0) for weak_spot in weak_spots if weak_spot.pitch}
+    if not pitch_mix:
+        pitch_mix = {tag: 10.0 for tag in pitcher.tags}
+    return PitcherWeakSpotProfile(
+        pitcher_name=pitcher.name,
+        weak_zones=weak_zones,
+        pitch_mix=pitch_mix,
+        attack_locations=attack_locations,
     )
 
 
