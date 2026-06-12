@@ -6,6 +6,7 @@ from typing import Dict, List
 from russworks.config.weights import ScoringWeights
 from russworks.intake import BatterIntake, GameIntake, ReviewQueue, validate_step2_intake
 from russworks.models import Batter, GameEnvironment, Pitcher, RussTier
+from russworks.scoring.catcher import CatcherPowerEngine, CatcherProfile
 from russworks.scoring.cps import ClusterParticipationInput, ClusterParticipationScore, calculate_cps
 from russworks.scoring.environment import EnvironmentScore, EnvironmentScoreInput, calculate_environment_score
 from russworks.scoring.lstm import LineupSlotTrendInput, calculate_lstm
@@ -40,6 +41,7 @@ class Step3ReviewEngine:
         self.weak_spot_collision_engine = WeakSpotCollisionEngine()
         self.ypi_engine = YPIEngine()
         self.veteran_bounce_engine = VeteranBounceEngine()
+        self.catcher_power_engine = CatcherPowerEngine()
 
     def review_all_batters(self, game: GameIntake) -> BatterReviewResult:
         queue = validate_step2_intake(game)
@@ -96,9 +98,10 @@ class Step3ReviewEngine:
             )
         )
         veteran_bounce = self.veteran_bounce_engine.score_profile(_veteran_profile(batter, tag, cps))
+        catcher_power = self.catcher_power_engine.score_profile(_catcher_profile(batter, tag, cps))
 
         ypi_flag = _has_any_tag(batter, {"ypi", "young", "prospect", "rookie", "small sample", "speed-power"}) or ypi.ypi_grade in {"Elite", "Strong", "Emerging"}
-        catcher_power_flag = _has_any_tag(batter, {"catcher"})
+        catcher_power_flag = catcher_power.grade in {"Elite", "Strong", "Moderate"}
         veteran_bounce_flag = _has_any_tag(batter, {"veteran", "superstar", "5-tool", "power threat"}) or veteran_bounce.grade in {"Elite", "Strong", "Moderate"}
         weak_spot_collision_flag = pvs.components.get("weak_spot_collision", 0.0) > 0 or collision.collision_score >= 25
         non_superstar_core_flag = not _has_any_tag(batter, {"superstar"}) and (
@@ -145,6 +148,7 @@ class Step3ReviewEngine:
                 weak_spot_collision_flag,
                 ypi.ypi_grade,
                 veteran_bounce.grade,
+                catcher_power.grade,
             ),
             weak_spot_collision_score=collision.collision_score,
             weak_spot_collision_confidence=collision.collision_confidence,
@@ -155,6 +159,9 @@ class Step3ReviewEngine:
             veteran_bounce_score=veteran_bounce.veteran_bounce_score,
             veteran_bounce_confidence=veteran_bounce.confidence,
             veteran_bounce_grade=veteran_bounce.grade,
+            catcher_power_score=catcher_power.catcher_power_score,
+            catcher_power_confidence=catcher_power.confidence,
+            catcher_power_grade=catcher_power.grade,
         )
 
     def _build_context(self, game: GameIntake, queue: ReviewQueue) -> Step3GameContext:
@@ -350,6 +357,25 @@ def _veteran_profile(batter: BatterIntake, tag: TeamAttackGrade, cps: ClusterPar
     )
 
 
+def _catcher_profile(batter: BatterIntake, tag: TeamAttackGrade, cps: ClusterParticipationScore) -> CatcherProfile:
+    tags = " ".join(batter.tags).lower()
+    is_catcher = "catcher" in tags or tags.strip() == "c"
+    return CatcherProfile(
+        batter_name=batter.name,
+        primary_position="C" if is_catcher else "",
+        games_caught=65 if is_catcher else 0,
+        lineup_slot=batter.lineup_slot,
+        recent_hr_trend=max(0.0, batter.hr_pct - 10.0) / 3.0,
+        barrel_rate=max(0.0, batter.pitch_mix_score + (2.5 if is_catcher else 0.0)),
+        hard_hit_rate=max(0.0, 37.0 + batter.pitch_mix_score + (3.5 if is_catcher else 0.0)),
+        exit_velocity=88.0 + max(0.0, batter.pitch_mix_score - 4.0),
+        fly_ball_profile=34.0 + batter.pitch_mix_score,
+        pull_profile=38.0 + batter.pitch_mix_score,
+        team_tag=tag.score,
+        team_cps=cps.score,
+    )
+
+
 def _has_any_tag(batter: BatterIntake, keys: set[str]) -> bool:
     tags = " ".join(batter.tags).lower()
     return any(key in tags for key in keys)
@@ -404,12 +430,13 @@ def _review_notes(
     weak_spot_collision_flag: bool,
     ypi_grade: str,
     veteran_bounce_grade: str,
+    catcher_power_grade: str,
 ) -> List[str]:
     notes = []
     if ypi_flag:
         notes.append(f"YPI {ypi_grade}")
     if catcher_power_flag:
-        notes.append("Catcher Power")
+        notes.append(f"Catcher Power {catcher_power_grade}")
     if veteran_bounce_flag:
         notes.append(f"Veteran Bounce {veteran_bounce_grade}")
     if non_superstar_core_flag:

@@ -28,6 +28,9 @@ class TeamClusterReport:
     veteran_bounce_score: float = 0.0
     veteran_bounce_confidence: float = 0.0
     veteran_bounce_grade: str = "Weak"
+    catcher_power_score: float = 0.0
+    catcher_power_confidence: float = 0.0
+    catcher_power_grade: str = "Weak"
 
 
 @dataclass(frozen=True)
