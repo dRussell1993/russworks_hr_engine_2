@@ -10,6 +10,13 @@ from .lstm import LineupSlotTrendInput, LineupSlotTrendMultiplier, calculate_lst
 from .pvs import PitchVulnerabilityInput, PitchVulnerabilityScore, calculate_pvs
 from .tag import TeamAttackGrade, TeamAttackGradeInput, calculate_tag as calculate_tag_module, grade_score
 from .umpire import UmpireScore, UmpireScoreInput, calculate_umpire_score
+from .weakspot import (
+    CollisionResult,
+    PitcherWeakSpotProfile,
+    WeakSpotCollisionEngine,
+    WeakSpotProfile,
+    calculate_weak_spot_collision,
+)
 
 
 def grade(score: float) -> str:
@@ -257,16 +264,20 @@ def score_game(game: Game) -> List[BatterScore]:
 __all__ = [
     "ClusterParticipationInput",
     "ClusterParticipationScore",
+    "CollisionResult",
     "EnvironmentScore",
     "EnvironmentScoreInput",
     "LineupSlotTrendInput",
     "LineupSlotTrendMultiplier",
+    "PitcherWeakSpotProfile",
     "PitchVulnerabilityInput",
     "PitchVulnerabilityScore",
     "TeamAttackGrade",
     "TeamAttackGradeInput",
     "UmpireScore",
     "UmpireScoreInput",
+    "WeakSpotCollisionEngine",
+    "WeakSpotProfile",
     "calculate_cps_module",
     "calculate_environment_score",
     "calculate_lstm",
@@ -274,5 +285,6 @@ __all__ = [
     "calculate_tag_module",
     "calculate_team_clusters",
     "calculate_umpire_score",
+    "calculate_weak_spot_collision",
     "score_game",
 ]
