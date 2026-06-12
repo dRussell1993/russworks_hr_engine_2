@@ -35,6 +35,7 @@ class VeteranBounceResult:
 
 class VeteranBounceEngine:
     def score_profile(self, profile: VeteranProfile) -> VeteranBounceResult:
+        healthy_metrics = _has_healthy_underlying_metrics(profile)
         age_component = _age_component(profile.age)
         service_component = _clamp(profile.mlb_service_time * 1.2, -4.0, 10.0)
         historical_power_component = _clamp(profile.historical_hr_production * 0.9, -8.0, 16.0)
@@ -48,6 +49,7 @@ class VeteranBounceEngine:
         cluster_component = _clamp((profile.team_cluster_quality - 70.0) * 0.18, -6.0, 10.0)
         exit_velocity_component = _clamp(profile.recent_exit_velocity_trend * 3.0, -8.0, 14.0)
         non_superstar_component = 3.0 if not profile.is_superstar else 0.0
+        unsupported_name_value_component = -12.0 if profile.is_superstar and not healthy_metrics else 0.0
 
         components = {
             "age": round(age_component, 2),
@@ -63,10 +65,10 @@ class VeteranBounceEngine:
             "team_cluster_quality": round(cluster_component, 2),
             "recent_exit_velocity_trend": round(exit_velocity_component, 2),
             "non_superstar": round(non_superstar_component, 2),
+            "unsupported_name_value": round(unsupported_name_value_component, 2),
         }
         score = round(_clamp(25.0 + sum(components.values()), 0.0, 100.0), 2)
         confidence = _confidence(profile)
-        healthy_metrics = _has_healthy_underlying_metrics(profile)
         temporary_drought = profile.recent_hr_drought >= 8.0 and healthy_metrics
         bounce_back = score >= 68.0 and healthy_metrics and (temporary_drought or profile.recent_exit_velocity_trend >= 1.0)
         return VeteranBounceResult(
@@ -189,6 +191,8 @@ def _notes(
         notes.append("bounce-back candidate")
     if not is_superstar:
         notes.append("does not require superstar status")
+    if is_superstar and not healthy_metrics:
+        notes.append("unsupported name-value guardrail")
     if not notes:
         notes.append("no active Veteran Bounce boost")
     return notes
