@@ -332,6 +332,8 @@ def _archetypes_for_leg(slip: Slip, leg: SlipLeg) -> List[str]:
 def _loser_reason(leg: SlipLeg, archetypes: Sequence[str]) -> str:
     if "Chaos" in archetypes:
         return "Higher-variance chaos leg missed actual HR list."
+    if "Catcher Power" in archetypes:
+        return "Catcher Power leg missed actual HR list."
     if "Veteran Bounce" in archetypes:
         return "Veteran Bounce rebound leg missed actual HR list."
     if "Non-Superstar" in archetypes:
