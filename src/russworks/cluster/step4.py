@@ -14,6 +14,7 @@ _A_LEVEL_GRADES = {"A", "A+"}
 _YPI_GRADE_RANK = {"Elite": 5, "Strong": 4, "Emerging": 3, "Neutral": 2, "Weak": 1}
 _VETERAN_GRADE_RANK = {"Elite": 5, "Strong": 4, "Moderate": 3, "Neutral": 2, "Weak": 1}
 _CATCHER_GRADE_RANK = {"Elite": 5, "Strong": 4, "Moderate": 3, "Neutral": 2, "Weak": 1}
+_PITCH_MIX_GRADE_RANK = {"Elite": 5, "Strong": 4, "Moderate": 3, "Neutral": 2, "Weak": 1}
 
 
 class Step4ClusterEngine:
@@ -76,6 +77,9 @@ class Step4ClusterEngine:
         catcher_power_score = max(review.catcher_power_score for review in reviews)
         catcher_power_confidence = mean(review.catcher_power_confidence for review in reviews)
         catcher_power_grade = _top_catcher_power_grade(reviews)
+        pitch_mix_matchup_score = max(review.pitch_mix_matchup_score for review in reviews)
+        pitch_mix_matchup_confidence = mean(review.pitch_mix_matchup_confidence for review in reviews)
+        pitch_mix_matchup_grade = _top_pitch_mix_matchup_grade(reviews)
         tag_grade = grade_score(tag_score)
         cps_grade = grade_score(cps_score)
         total_cluster_score = _cluster_score(reviews, tag_score, cps_score, tag_grade, cps_grade)
@@ -84,6 +88,11 @@ class Step4ClusterEngine:
         catcher_power = [review for review in ranked_batters if review.catcher_power_flag]
         ypi = [review for review in ranked_batters if review.ypi_flag]
         veteran_bounce = [review for review in ranked_batters if review.veteran_bounce_flag]
+        pitch_mix_matchup = [
+            review
+            for review in ranked_batters
+            if review.pitch_mix_matchup_grade in {"Elite", "Strong", "Moderate"}
+        ]
         core = ranked_batters[:4]
         secondary = ranked_batters[4:]
         captain = ranked_batters[0].batter_name
@@ -104,8 +113,18 @@ class Step4ClusterEngine:
             catcher_power_bats=[review.batter_name for review in catcher_power],
             ypi_bats=[review.batter_name for review in ypi],
             veteran_bounce_bats=[review.batter_name for review in veteran_bounce],
+            pitch_mix_matchup_bats=[review.batter_name for review in pitch_mix_matchup],
             batter_count=len(reviews),
-            notes=_cluster_notes(tag_grade, cps_grade, reviews, total_cluster_score, ypi_grade, veteran_bounce_grade, catcher_power_grade),
+            notes=_cluster_notes(
+                tag_grade,
+                cps_grade,
+                reviews,
+                total_cluster_score,
+                ypi_grade,
+                veteran_bounce_grade,
+                catcher_power_grade,
+                pitch_mix_matchup_grade,
+            ),
             ypi_score=ypi_score,
             ypi_confidence=ypi_confidence,
             ypi_grade=ypi_grade,
@@ -115,6 +134,9 @@ class Step4ClusterEngine:
             catcher_power_score=catcher_power_score,
             catcher_power_confidence=catcher_power_confidence,
             catcher_power_grade=catcher_power_grade,
+            pitch_mix_matchup_score=pitch_mix_matchup_score,
+            pitch_mix_matchup_confidence=pitch_mix_matchup_confidence,
+            pitch_mix_matchup_grade=pitch_mix_matchup_grade,
         )
 
     def generate_cluster_report(self, step3_results: BatterReviewResult) -> ClusterRanking:
@@ -178,12 +200,17 @@ def _cluster_score(
     max_ypi = max((review.ypi_score for review in reviews), default=0.0)
     max_veteran = max((review.veteran_bounce_score for review in reviews), default=0.0)
     max_catcher = max((review.catcher_power_score for review in reviews), default=0.0)
+    max_pitch_mix = max((review.pitch_mix_matchup_score for review in reviews), default=0.0)
     special_depth = min(
         8.0,
         sum(
             1.5
             for review in reviews
-            if review.non_superstar_core_flag or review.catcher_power_flag or review.ypi_flag or review.veteran_bounce_flag
+            if review.non_superstar_core_flag
+            or review.catcher_power_flag
+            or review.ypi_flag
+            or review.veteran_bounce_flag
+            or review.pitch_mix_matchup_grade in {"Elite", "Strong", "Moderate"}
         ),
     )
     elite_boost = 6.0 if tag_grade in _A_LEVEL_GRADES and cps_grade in _A_LEVEL_GRADES else 0.0
@@ -201,6 +228,7 @@ def _cluster_score(
         + max_ypi * 0.06
         + max_veteran * 0.05
         + max_catcher * 0.05
+        + max_pitch_mix * 0.05
         + special_depth
         + elite_boost
     )
@@ -215,11 +243,13 @@ def _batter_cluster_score(review: BatterReview) -> float:
     score += review.ypi_score * 0.12
     score += review.veteran_bounce_score * 0.10
     score += review.catcher_power_score * 0.10
+    score += review.pitch_mix_matchup_score * 0.10
     score += 5.0 if review.non_superstar_core_flag else 0.0
     score += 4.0 if review.weak_spot_collision_flag else 0.0
     score += 3.0 if review.ypi_flag else 0.0
     score += 3.0 if review.catcher_power_flag else 0.0
     score += 3.0 if review.veteran_bounce_flag else 0.0
+    score += 3.0 if review.pitch_mix_matchup_grade in {"Elite", "Strong", "Moderate"} else 0.0
     return round(score, 2)
 
 
@@ -233,6 +263,10 @@ def _top_veteran_bounce_grade(reviews: Sequence[BatterReview]) -> str:
 
 def _top_catcher_power_grade(reviews: Sequence[BatterReview]) -> str:
     return max((review.catcher_power_grade for review in reviews), key=lambda grade: _CATCHER_GRADE_RANK.get(grade, 0), default="Weak")
+
+
+def _top_pitch_mix_matchup_grade(reviews: Sequence[BatterReview]) -> str:
+    return max((review.pitch_mix_matchup_grade for review in reviews), key=lambda grade: _PITCH_MIX_GRADE_RANK.get(grade, 0), default="Weak")
 
 
 def _opponent_label(reviews: Sequence[BatterReview]) -> str:
@@ -278,6 +312,7 @@ def _cluster_notes(
     ypi_grade: str,
     veteran_bounce_grade: str,
     catcher_power_grade: str,
+    pitch_mix_matchup_grade: str,
 ) -> List[str]:
     notes: List[str] = []
     if tag_grade in _A_LEVEL_GRADES and cps_grade in _A_LEVEL_GRADES:
@@ -294,12 +329,16 @@ def _cluster_notes(
         notes.append("YPI bats identified")
     if any(review.veteran_bounce_flag for review in reviews):
         notes.append("Veteran Bounce bats identified")
+    if any(review.pitch_mix_matchup_grade in {"Elite", "Strong", "Moderate"} for review in reviews):
+        notes.append("Pitch Mix matchup bats identified")
     if ypi_grade in {"Elite", "Strong", "Emerging"}:
         notes.append(f"{ypi_grade} YPI cluster pressure")
     if veteran_bounce_grade in {"Elite", "Strong", "Moderate"}:
         notes.append(f"{veteran_bounce_grade} Veteran Bounce cluster pressure")
     if catcher_power_grade in {"Elite", "Strong", "Moderate"}:
         notes.append(f"{catcher_power_grade} Catcher Power cluster pressure")
+    if pitch_mix_matchup_grade in {"Elite", "Strong", "Moderate"}:
+        notes.append(f"{pitch_mix_matchup_grade} Pitch Mix cluster pressure")
     if total_cluster_score >= 90:
         notes.append("Step 4 primary cluster candidate")
     return notes

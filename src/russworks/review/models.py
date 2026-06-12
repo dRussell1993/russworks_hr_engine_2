@@ -39,6 +39,9 @@ class BatterReview:
     catcher_power_score: float = 0.0
     catcher_power_confidence: float = 0.0
     catcher_power_grade: str = "Weak"
+    pitch_mix_matchup_score: float = 0.0
+    pitch_mix_matchup_confidence: float = 0.0
+    pitch_mix_matchup_grade: str = "Weak"
 
 
 @dataclass(frozen=True)
