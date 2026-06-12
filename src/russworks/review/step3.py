@@ -13,6 +13,7 @@ from russworks.scoring.pvs import PitchVulnerabilityInput, calculate_pvs
 from russworks.scoring.tag import TeamAttackGrade, TeamAttackGradeInput, calculate_tag
 from russworks.scoring.umpire import UmpireScore, UmpireScoreInput, calculate_umpire_score
 from russworks.scoring.weakspot import PitcherWeakSpotProfile, WeakSpotCollisionEngine, WeakSpotProfile
+from russworks.scoring.ypi import YPIEngine, YPIProfile
 
 from .models import BatterReview, BatterReviewResult
 
@@ -36,6 +37,7 @@ class Step3ReviewEngine:
     def __init__(self, weights: ScoringWeights | None = None) -> None:
         self.weights = weights or ScoringWeights.defaults()
         self.weak_spot_collision_engine = WeakSpotCollisionEngine()
+        self.ypi_engine = YPIEngine()
 
     def review_all_batters(self, game: GameIntake) -> BatterReviewResult:
         queue = validate_step2_intake(game)
@@ -78,6 +80,7 @@ class Step3ReviewEngine:
             _batter_collision_profile(batter, opponent_pitcher.name, game),
             _pitcher_collision_profile(opponent_pitcher, game),
         )
+        ypi = self.ypi_engine.score_profile(_ypi_profile(batter))
         tag = game_context.tag_by_team[batter.team]
         cps = game_context.cps_by_team[batter.team]
         lstm = calculate_lstm(
@@ -91,7 +94,7 @@ class Step3ReviewEngine:
             )
         )
 
-        ypi_flag = _has_any_tag(batter, {"ypi", "young", "prospect", "rookie", "small sample", "speed-power"})
+        ypi_flag = _has_any_tag(batter, {"ypi", "young", "prospect", "rookie", "small sample", "speed-power"}) or ypi.ypi_grade in {"Elite", "Strong", "Emerging"}
         catcher_power_flag = _has_any_tag(batter, {"catcher"})
         veteran_bounce_flag = _has_any_tag(batter, {"veteran", "superstar", "5-tool", "power threat"})
         weak_spot_collision_flag = pvs.components.get("weak_spot_collision", 0.0) > 0 or collision.collision_score >= 25
@@ -131,10 +134,13 @@ class Step3ReviewEngine:
             weak_spot_collision_flag=weak_spot_collision_flag,
             final_russ_score=final_score,
             russ_tier=_tier(final_score),
-            notes=_review_notes(ypi_flag, catcher_power_flag, veteran_bounce_flag, non_superstar_core_flag, weak_spot_collision_flag),
+            notes=_review_notes(ypi_flag, catcher_power_flag, veteran_bounce_flag, non_superstar_core_flag, weak_spot_collision_flag, ypi.ypi_grade),
             weak_spot_collision_score=collision.collision_score,
             weak_spot_collision_confidence=collision.collision_confidence,
             weak_spot_collision_grade=collision.collision_grade,
+            ypi_score=ypi.ypi_score,
+            ypi_confidence=ypi.ypi_confidence,
+            ypi_grade=ypi.ypi_grade,
         )
 
     def _build_context(self, game: GameIntake, queue: ReviewQueue) -> Step3GameContext:
@@ -283,6 +289,25 @@ def _pitcher_collision_profile(pitcher: Pitcher, game: GameIntake) -> PitcherWea
     )
 
 
+def _ypi_profile(batter: BatterIntake) -> YPIProfile:
+    tags = " ".join(batter.tags).lower()
+    is_young = any(key in tags for key in ["ypi", "young", "prospect", "rookie", "small sample", "speed-power"])
+    return YPIProfile(
+        batter_name=batter.name,
+        age=23 if is_young else 29,
+        mlb_experience=0.5 if is_young else 4.0,
+        lineup_movement=max(0.0, 6.0 - float(batter.lineup_slot or 9)) / 2.0,
+        recent_exit_velocity_trend=max(0.0, batter.pitch_mix_score - 5.0),
+        recent_barrel_trend=max(0.0, batter.hr_pct - 10.0) / 3.0,
+        recent_hard_hit_trend=max(0.0, batter.pitch_mix_score - 4.0),
+        hr_trend=max(0.0, batter.hr_pct - 12.0) / 3.0,
+        opportunity_growth=max(0.0, float(batter.projected_ab) - 3.0),
+        playing_time_growth=max(0.0, batter.projected_hits),
+        lineup_slot_promotion=max(0.0, 5.0 - float(batter.lineup_slot or 9)) / 2.0,
+        is_superstar="superstar" in tags,
+    )
+
+
 def _has_any_tag(batter: BatterIntake, keys: set[str]) -> bool:
     tags = " ".join(batter.tags).lower()
     return any(key in tags for key in keys)
@@ -335,10 +360,11 @@ def _review_notes(
     veteran_bounce_flag: bool,
     non_superstar_core_flag: bool,
     weak_spot_collision_flag: bool,
+    ypi_grade: str,
 ) -> List[str]:
     notes = []
     if ypi_flag:
-        notes.append("YPI")
+        notes.append(f"YPI {ypi_grade}")
     if catcher_power_flag:
         notes.append("Catcher Power")
     if veteran_bounce_flag:
