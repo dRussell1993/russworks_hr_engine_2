@@ -21,6 +21,9 @@ class TeamClusterReport:
     ypi_bats: List[str] = field(default_factory=list)
     batter_count: int = 0
     notes: List[str] = field(default_factory=list)
+    ypi_score: float = 0.0
+    ypi_confidence: float = 0.0
+    ypi_grade: str = "Weak"
 
 
 @dataclass(frozen=True)
