@@ -299,12 +299,23 @@ def _leg_key(leg: SlipLeg) -> tuple[str, str]:
 
 
 def _archetypes_for_leg(slip: Slip, leg: SlipLeg) -> List[str]:
-    haystack = " ".join([slip.name, slip.slip_type, slip.justification, leg.batter, leg.slip_role, leg.justification]).lower()
+    metadata_text = " ".join(str(value) for value in slip.metadata.values())
+    haystack = " ".join([
+        slip.name,
+        slip.slip_type,
+        slip.justification,
+        metadata_text,
+        leg.batter,
+        leg.slip_role,
+        leg.justification,
+    ]).lower()
     archetypes: List[str] = []
     if "non-superstar" in haystack or "non_superstar" in haystack or "hidden" in haystack or "value" in haystack:
         archetypes.append("Non-Superstar")
     if "ypi" in haystack or "young" in haystack:
         archetypes.append("YPI")
+    if "veteran" in haystack or "bounce" in haystack or "rebound" in haystack:
+        archetypes.append("Veteran Bounce")
     if "catcher" in haystack:
         archetypes.append("Catcher Power")
     if "chaos" in haystack or "higher-variance" in haystack:
@@ -321,6 +332,8 @@ def _archetypes_for_leg(slip: Slip, leg: SlipLeg) -> List[str]:
 def _loser_reason(leg: SlipLeg, archetypes: Sequence[str]) -> str:
     if "Chaos" in archetypes:
         return "Higher-variance chaos leg missed actual HR list."
+    if "Veteran Bounce" in archetypes:
+        return "Veteran Bounce rebound leg missed actual HR list."
     if "Non-Superstar" in archetypes:
         return "Value-backed non-superstar leg missed actual HR list."
     if leg.tag in {"A", "A+"} and leg.cps in {"A", "A+"}:
