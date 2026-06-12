@@ -258,8 +258,8 @@ def _batter_collision_profile(batter: BatterIntake, opponent_pitcher_name: str, 
         if matchup.batter_name.lower() == batter.name.lower()
         and matchup.pitcher_name.lower() == opponent_pitcher_name.lower()
     ]
-    pitches = {matchup.pitch: matchup.matchup_score or batter.pitch_mix_score for matchup in matching_hr if matchup.pitch}
-    zones = [matchup.notes for matchup in matching_hr if matchup.notes]
+    pitches = {matchup.pitch: max((matchup.matchup_score or batter.pitch_mix_score) * 10.0, 1.0) for matchup in matching_hr if matchup.pitch}
+    zones = [matchup.notes or matchup.pitch for matchup in matching_hr if matchup.notes or matchup.pitch]
     return WeakSpotProfile(
         batter_name=batter.name,
         hot_zones=zones,
