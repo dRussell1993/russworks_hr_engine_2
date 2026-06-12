@@ -30,6 +30,9 @@ class BatterReview:
     weak_spot_collision_score: float = 0.0
     weak_spot_collision_confidence: float = 0.0
     weak_spot_collision_grade: str = "D"
+    ypi_score: float = 0.0
+    ypi_confidence: float = 0.0
+    ypi_grade: str = "Weak"
 
 
 @dataclass(frozen=True)
