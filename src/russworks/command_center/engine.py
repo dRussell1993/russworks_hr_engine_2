@@ -50,6 +50,7 @@ class CommandCenterEngine:
             recommendations=recommendations,
             trends=trends,
             optimizer=optimizer,
+            daily_run_result=daily_run_result,
         )
         execution_summary = self.execution_summary(
             daily_run_result=daily_run_result,
@@ -122,6 +123,7 @@ class CommandCenterEngine:
         recommendations: RecommendationReport | None = None,
         trends: TrendSummary | None = None,
         optimizer: OptimizationResult | None = None,
+        daily_run_result: DailyRunResult | None = None,
     ) -> FormulaHealthReport:
         return FormulaHealthReport(
             current_module_weights=_weights_to_dict(weights),
@@ -130,6 +132,7 @@ class CommandCenterEngine:
             modules_heating_up=list(trends.heating_up if trends else []),
             modules_cooling_off=list(trends.cooling_off if trends else []),
             optimizer_recommendations=_optimizer_recommendations(optimizer, recommendations),
+            confidence_summary=_confidence_summary(daily_run_result),
         )
 
     def execution_summary(
@@ -359,6 +362,24 @@ def _integrity_path(daily_run_result: DailyRunResult | None, integrity_report: I
     if integrity_report:
         return "data/integrity/integrity_report.json"
     return ""
+
+
+def _confidence_summary(daily_run_result: DailyRunResult | None) -> dict[str, Any]:
+    if daily_run_result is None or daily_run_result.step3_result is None:
+        return {}
+    reviews = list(daily_run_result.step3_result.reviews)
+    if not reviews:
+        return {}
+    scores = [review.confidence_score for review in reviews]
+    grade_counts: dict[str, int] = {}
+    for review in reviews:
+        grade_counts[review.confidence_grade] = grade_counts.get(review.confidence_grade, 0) + 1
+    return {
+        "average_confidence": round(sum(scores) / len(scores), 1),
+        "min_confidence": min(scores),
+        "max_confidence": max(scores),
+        "grade_counts": grade_counts,
+    }
 
 
 def _json_ready(value: Any) -> Any:

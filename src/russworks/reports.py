@@ -214,6 +214,12 @@ def _batter_review_row(review: BatterReview) -> Dict[str, Any]:
             "confidence": review.park_factor_confidence,
             "grade": review.park_factor_grade,
         },
+        "confidence": {
+            "score": review.confidence_score,
+            "grade": review.confidence_grade,
+            "reasoning": list(review.confidence_reasoning),
+            "breakdown": dict(review.confidence_breakdown),
+        },
         "non_superstar_core": review.non_superstar_core_flag,
         "notes": list(review.notes),
     }
@@ -231,6 +237,12 @@ def _team_ranking_row(rank: int, report: TeamClusterReport) -> Dict[str, Any]:
         "cluster_captain": report.cluster_captain,
         "hidden_cluster_beneficiary": report.hidden_cluster_beneficiary,
         "batter_count": report.batter_count,
+        "confidence": {
+            "score": report.confidence_score,
+            "grade": report.confidence_grade,
+            "reasoning": list(report.confidence_reasoning),
+            "breakdown": dict(report.confidence_breakdown),
+        },
         "notes": list(report.notes),
     }
 
@@ -294,6 +306,11 @@ def _slip_row(slip: Step5Slip) -> Dict[str, Any]:
         "name": slip.name,
         "slip_type": slip.slip_type,
         "justification": slip.justification,
+        "confidence": {
+            "score": slip.confidence_score,
+            "grade": slip.confidence_grade,
+            "reasoning": list(slip.confidence_reasoning),
+        },
         "metadata": dict(slip.metadata),
         "legs": [
             {
@@ -304,6 +321,11 @@ def _slip_row(slip: Step5Slip) -> Dict[str, Any]:
                 "russ_score": leg.russ_score,
                 "slip_role": leg.slip_role,
                 "justification": leg.justification,
+                "confidence": {
+                    "score": leg.confidence_score,
+                    "grade": leg.confidence_grade,
+                    "reasoning": list(leg.confidence_reasoning),
+                },
             }
             for leg in slip.legs
         ],

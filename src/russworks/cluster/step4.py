@@ -5,6 +5,7 @@ from dataclasses import replace
 from statistics import mean
 from typing import Dict, List, Sequence
 
+from russworks.confidence import ConfidenceEngine
 from russworks.configuration import RussWorksUserConfig, default_user_config
 from russworks.review import BatterReview, BatterReviewResult
 from russworks.scoring.tag import grade_score
@@ -24,6 +25,7 @@ _PARK_FACTOR_GRADE_RANK = {"Elite": 5, "Strong": 4, "Moderate": 3, "Neutral": 2,
 class Step4ClusterEngine:
     def __init__(self, user_config: RussWorksUserConfig | None = None) -> None:
         self.user_config = (user_config or default_user_config()).validate()
+        self.confidence_engine = ConfidenceEngine()
 
     def rank_team_clusters(self, step3_results: BatterReviewResult) -> ClusterRanking:
         validation_errors, missing_batters = self._validate_step3_results(step3_results)
@@ -120,6 +122,22 @@ class Step4ClusterEngine:
         secondary = ranked_batters[4:]
         captain = ranked_batters[0].batter_name
         hidden_beneficiary = _hidden_cluster_beneficiary(non_superstar, captain, secondary)
+        confidence = self.confidence_engine.combine_results(
+            subject=team,
+            subject_type="team_cluster",
+            results=[
+                self.confidence_engine.result_from_fields(
+                    subject=review.batter_name,
+                    subject_type="batter_review",
+                    confidence_score=review.confidence_score,
+                    confidence_grade=review.confidence_grade,
+                    confidence_reasoning=review.confidence_reasoning,
+                    breakdown=review.confidence_breakdown,
+                )
+                for review in reviews
+            ],
+            context={"team": team, "batter_count": len(reviews)},
+        )
 
         return TeamClusterReport(
             team=team,
@@ -170,6 +188,10 @@ class Step4ClusterEngine:
             park_factor_score=park_factor_score,
             park_factor_confidence=park_factor_confidence,
             park_factor_grade=park_factor_grade,
+            confidence_score=confidence.confidence_score,
+            confidence_grade=confidence.confidence_grade,
+            confidence_reasoning=confidence.confidence_reasoning,
+            confidence_breakdown=confidence.breakdown.to_dict(),
         )
 
     def _apply_config_to_report(self, report: TeamClusterReport) -> TeamClusterReport:

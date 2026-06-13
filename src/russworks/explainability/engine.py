@@ -31,6 +31,7 @@ class ExplainabilityEngine:
             _factor("YPI contribution", review.ypi_score, _impact(review.ypi_score, 65, 35), f"YPI flag is {review.ypi_flag}; grade {review.ypi_grade}.", "BatterReview.ypi_*"),
             _factor("Veteran Bounce contribution", review.veteran_bounce_score, _impact(review.veteran_bounce_score, 65, 35), f"Veteran Bounce flag is {review.veteran_bounce_flag}; grade {review.veteran_bounce_grade}.", "BatterReview.veteran_bounce_*"),
             _factor("Catcher Power contribution", review.catcher_power_score, _impact(review.catcher_power_score, 65, 35), f"Catcher Power flag is {review.catcher_power_flag}; grade {review.catcher_power_grade}.", "BatterReview.catcher_power_*"),
+            _factor("Confidence", review.confidence_score, _impact(review.confidence_score, 78, 62), f"Confidence grade {review.confidence_grade}. {' '.join(review.confidence_reasoning)}", "BatterReview.confidence_*"),
         ]
         positive = [factor.name for factor in factors if factor.impact == "positive"]
         neutral = [factor.name for factor in factors if factor.impact == "neutral"]
@@ -49,6 +50,7 @@ class ExplainabilityEngine:
             _factor("CPS grade", report.cps_grade, _grade_impact(report.cps_grade), "Cluster Participation Score used as a primary cluster driver.", "TeamClusterReport.cps_grade"),
             _factor("Cluster captain", report.cluster_captain, "context", "Highest-ranked batter inside this team cluster.", "TeamClusterReport.cluster_captain"),
             _factor("Hidden beneficiary", report.hidden_cluster_beneficiary or "none", "context", "Non-obvious beneficiary identified by Step 4.", "TeamClusterReport.hidden_cluster_beneficiary"),
+            _factor("Confidence", report.confidence_score, _impact(report.confidence_score, 78, 62), f"Team cluster confidence grade {report.confidence_grade}.", "TeamClusterReport.confidence_*"),
         ]
         cluster_drivers = [
             _count_factor("Core bats", report.core_bats, "TeamClusterReport.core_bats"),
@@ -78,12 +80,14 @@ class ExplainabilityEngine:
                 _factor("TAG", leg.tag, _grade_impact(leg.tag), "Team TAG grade stored on the slip leg.", "SlipLeg.tag"),
                 _factor("CPS", leg.cps, _grade_impact(leg.cps), "Team CPS grade stored on the slip leg.", "SlipLeg.cps"),
                 _factor("Russ Score", leg.russ_score, _impact(leg.russ_score, 85, 70), "Russ/cluster score stored on the slip leg.", "SlipLeg.russ_score"),
+                _factor("Confidence", leg.confidence_score, _impact(leg.confidence_score, 78, 62), f"Slip leg confidence grade {leg.confidence_grade}.", "SlipLeg.confidence_*"),
             ]
             for leg in slip.legs
         }
         archetype_factors = [
             _factor("Slip type", slip.slip_type, "context", _slip_type_summary(slip.slip_type), "Slip.slip_type"),
             _factor("Slip justification", slip.justification, "context", slip.justification, "Slip.justification"),
+            _factor("Slip confidence", slip.confidence_score, _impact(slip.confidence_score, 78, 62), f"Slip confidence grade {slip.confidence_grade}.", "Slip.confidence_*"),
         ]
         validation_factors = [
             _factor("Unique batters", len(slip.batters) == len(set(slip.batters)), "positive" if len(slip.batters) == len(set(slip.batters)) else "negative", "Slip passed duplicate-batter validation when this is true.", "Slip.batters"),

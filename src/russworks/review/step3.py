@@ -5,6 +5,7 @@ from typing import Dict, List
 
 from russworks.config.weights import ScoringWeights
 from russworks.configuration import RussWorksUserConfig, default_user_config
+from russworks.confidence import ConfidenceEngine
 from russworks.intake import BatterIntake, GameIntake, ReviewQueue, validate_step2_intake
 from russworks.models import Batter, GameEnvironment, Pitcher, RussTier
 from russworks.scoring.bullpen import BullpenExposureEngine, BullpenProfile, RelieverProfile
@@ -50,6 +51,7 @@ class Step3ReviewEngine:
         self.pitch_mix_engine = PitchMixEngine()
         self.bullpen_exposure_engine = BullpenExposureEngine()
         self.park_factor_engine = ParkFactorEngine()
+        self.confidence_engine = ConfidenceEngine()
 
     def review_all_batters(self, game: GameIntake) -> BatterReviewResult:
         queue = validate_step2_intake(game)
@@ -163,6 +165,19 @@ class Step3ReviewEngine:
             bullpen_exposure_flag=bullpen_exposure_flag,
             park_factor_flag=park_factor_flag,
         )
+        confidence = self.confidence_engine.score_review(
+            subject=batter.name,
+            data_completeness=_data_completeness_score(batter, game),
+            sample_size_quality=_sample_size_quality(batter, game, opponent_pitcher.name),
+            lineup_confirmation=100.0 if batter.confirmed and batter.lineup_slot in range(1, 10) else 35.0,
+            integrity_warnings=100.0,
+            environment_certainty=_environment_certainty(game),
+            pitch_mix_certainty=pitch_mix_confidence,
+            weak_spot_certainty=weak_spot_confidence,
+            bullpen_certainty=bullpen_confidence,
+            historical_consistency=_historical_consistency(ypi_confidence, veteran_confidence, catcher_confidence),
+            context={"lineup_slot": batter.lineup_slot, "team": batter.team},
+        )
         return BatterReview(
             batter_name=batter.name,
             team=batter.team,
@@ -216,6 +231,10 @@ class Step3ReviewEngine:
             park_factor_score=park_score,
             park_factor_confidence=park_confidence,
             park_factor_grade=park_grade,
+            confidence_score=confidence.confidence_score,
+            confidence_grade=confidence.confidence_grade,
+            confidence_reasoning=confidence.confidence_reasoning,
+            confidence_breakdown=confidence.breakdown.to_dict(),
         )
 
     def _build_context(self, game: GameIntake, queue: ReviewQueue) -> Step3GameContext:
@@ -680,3 +699,58 @@ def _pull_side_for_handedness(handedness: str) -> str:
     if handedness == "L":
         return "right_field"
     return "center_field"
+
+
+def _data_completeness_score(batter: BatterIntake, game: GameIntake) -> float:
+    checks = [
+        bool(batter.name),
+        bool(batter.team),
+        batter.lineup_slot is not None,
+        game.environment is not None,
+        game.umpire is not None or (game.environment is not None and game.environment.umpire is not None),
+        bool(game.weak_spots),
+        bool(game.hr_matchups),
+        all(team.starting_pitcher is not None for team in game.teams),
+    ]
+    return round(sum(1 for check in checks if check) / len(checks) * 100.0, 1)
+
+
+def _sample_size_quality(batter: BatterIntake, game: GameIntake, opponent_pitcher_name: str) -> float:
+    matching_matchups = [
+        matchup
+        for matchup in game.hr_matchups
+        if matchup.batter_name.lower() == batter.name.lower()
+        and matchup.pitcher_name.lower() == opponent_pitcher_name.lower()
+    ]
+    tag_text = " ".join(batter.tags).lower()
+    score = 45.0
+    score += min(20.0, max(0.0, float(batter.projected_ab)) * 5.0)
+    score += min(15.0, max(0.0, batter.projected_hits) * 8.0)
+    score += min(20.0, len(matching_matchups) * 10.0)
+    if "small sample" in tag_text:
+        score -= 20.0
+    return round(max(0.0, min(100.0, score)), 1)
+
+
+def _environment_certainty(game: GameIntake) -> float:
+    environment = game.environment
+    if environment is None:
+        return 0.0
+    checks = [
+        bool(environment.park),
+        environment.temperature_f != 70.0,
+        environment.wind_mph >= 0.0,
+        bool(environment.wind_direction),
+        environment.humidity_pct >= 0.0,
+        bool(environment.roof),
+        environment.park_hr_factor > 0.0,
+        game.umpire is not None or environment.umpire is not None,
+    ]
+    return round(sum(1 for check in checks if check) / len(checks) * 100.0, 1)
+
+
+def _historical_consistency(*confidences: float) -> float:
+    positive = [confidence for confidence in confidences if confidence > 0.0]
+    if not positive:
+        return 50.0
+    return round(sum(positive) / len(positive), 1)
