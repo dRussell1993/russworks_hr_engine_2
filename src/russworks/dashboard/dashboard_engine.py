@@ -114,6 +114,27 @@ class CalibrationDashboardEngine:
             backtest_result=backtest_result,
         )
 
+    def build_optimizer(
+        self,
+        dashboard: CalibrationDashboard,
+        *,
+        calibration_result: CalibrationResult | None = None,
+        recommendation_report=None,
+        trend_summary=None,
+        backtest_result: BacktestResult | None = None,
+        current_weights=None,
+    ):
+        from russworks.optimizer import FormulaOptimizer
+
+        return FormulaOptimizer().optimize(
+            dashboard=dashboard,
+            calibration_result=calibration_result,
+            recommendation_report=recommendation_report,
+            trend_summary=trend_summary,
+            backtest_result=backtest_result,
+            current_weights=current_weights,
+        )
+
 
 def build_calibration_dashboard(
     calibration_result: CalibrationResult | None = None,

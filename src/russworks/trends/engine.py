@@ -86,6 +86,18 @@ class TrendEngine:
         output_path.write_text(summary.to_json(), encoding="utf-8")
         return output_path
 
+    def build_optimizer(self, summary: TrendSummary, *, calibration_result=None, dashboard=None, recommendation_report=None, backtest_result=None, current_weights=None):
+        from russworks.optimizer import FormulaOptimizer
+
+        return FormulaOptimizer().optimize(
+            trend_summary=summary,
+            calibration_result=calibration_result,
+            dashboard=dashboard,
+            recommendation_report=recommendation_report,
+            backtest_result=backtest_result,
+            current_weights=current_weights,
+        )
+
     def _metric(self, module: str, points: list[_Point], snapshot: _Point | None) -> TrendMetric:
         sorted_points = sorted(points, key=lambda point: point.date)
         if sorted_points:

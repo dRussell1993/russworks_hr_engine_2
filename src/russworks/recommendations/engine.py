@@ -106,6 +106,18 @@ class WeightRecommendationEngine:
             backtest_result=backtest_result,
         )
 
+    def build_optimizer(self, report: RecommendationReport, *, dashboard=None, calibration_result=None, trend_summary=None, backtest_result=None, current_weights=None):
+        from russworks.optimizer import FormulaOptimizer
+
+        return FormulaOptimizer().optimize(
+            recommendation_report=report,
+            dashboard=dashboard,
+            calibration_result=calibration_result,
+            trend_summary=trend_summary,
+            backtest_result=backtest_result,
+            current_weights=current_weights,
+        )
+
     def _module_recommendation(
         self,
         module: str,
