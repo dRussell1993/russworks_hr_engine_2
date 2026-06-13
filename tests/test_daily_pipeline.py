@@ -1,4 +1,4 @@
-from dataclasses import is_dataclass
+from dataclasses import is_dataclass, replace
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -142,16 +142,31 @@ def _game(game_id: str, date: str, *, complete: bool = True) -> GameIntake:
         HRMatchup(batter_name=f"{home} Batter 1", pitcher_name=away_pitcher.name, pitch="slider", matchup_score=8.0),
         HRMatchup(batter_name=f"{away} Batter 4", pitcher_name=home_pitcher.name, pitch="fastball", matchup_score=7.5),
     ]
+    strength_offset = sum(int(char) for char in game_id if char.isdigit()) % 5
+    away_batters = _varied_batters(_batters(away, away), strength_offset)
+    home_batters = _varied_batters(_batters(home, home), strength_offset + 1)
     return GameIntake(
         game_id=game_id,
         date=date,
-        away_team=TeamIntake(team=away, batters=_batters(away, away), starting_pitcher=away_pitcher),
-        home_team=TeamIntake(team=home, batters=_batters(home, home), starting_pitcher=home_pitcher),
+        away_team=TeamIntake(team=away, batters=away_batters, starting_pitcher=away_pitcher),
+        home_team=TeamIntake(team=home, batters=home_batters, starting_pitcher=home_pitcher),
         environment=environment,
         umpire=environment.umpire,
         weak_spots=weak_spots,
         hr_matchups=hr_matchups,
     )
+
+
+def _varied_batters(batters, offset: int):
+    return [
+        replace(
+            batter,
+            hr_pct=max(1.0, batter.hr_pct + offset - (batter.lineup_slot or 0) * 0.2),
+            pitch_mix_score=max(1.0, batter.pitch_mix_score + offset * 0.4),
+            projected_hits=max(0.1, batter.projected_hits + offset * 0.1),
+        )
+        for batter in batters
+    ]
 
 
 def _multi_game_slate(date: str, *, complete_count: int, skipped_count: int) -> DailySlate:
@@ -228,6 +243,8 @@ def test_daily_pipeline_runs_all_steps_and_saves_report_json():
 
         report_path = Path(result.report_json_path)
         assert report_path == output_root / "2026-06-13" / "russworks_full_report.json"
+        assert Path(result.operator_report_path) == output_root / "2026-06-13" / "russworks_operator_report.md"
+        assert Path(result.operator_report_path).exists()
         payload = json.loads(report_path.read_text(encoding="utf-8"))
         assert payload["context"]["validation_status"] == "valid"
         assert payload["context"]["game_ids"] == ["tex-kc-1"]
@@ -239,6 +256,34 @@ def test_daily_pipeline_runs_all_steps_and_saves_report_json():
         assert Path(result.dashboard_path).exists()
         assert Path(result.command_center_path).exists()
         assert Path(result.web_dashboard_path).exists()
+
+
+def test_phase43_score_spread_cluster_spread_and_operator_markdown_report():
+    with TemporaryDirectory() as temp_dir:
+        output_root = Path(temp_dir) / "outputs"
+        request = DailyRunRequest(date="2026-06-13", output_root=str(output_root))
+        pipeline = RussWorksPipeline(slate_loader=lambda date, request: _multi_game_slate(date, complete_count=3, skipped_count=0))
+
+        result = pipeline.run_daily_pipeline("2026-06-13", request)
+
+        assert result.success
+        scores = [review.final_russ_score for review in result.step3_result.reviews]
+        assert max(scores) < 99.0
+        assert len({score for score in scores}) > 5
+        assert any(review.score_band in {"Elite Core", "Core Target", "Strong Play", "Value/Non-Superstar Core", "Chaos", "Fade"} for review in result.step3_result.reviews)
+
+        cluster_scores = [team.total_cluster_score for team in result.step4_result.ranked_teams]
+        assert max(cluster_scores) < 100.0
+        assert len({score for score in cluster_scores}) > 1
+        assert all(team.cluster_strength_label in {"Nuclear Cluster", "Strong Cluster", "Value Cluster", "Thin Cluster", "Fade Cluster"} for team in result.step4_result.ranked_teams)
+
+        operator_path = Path(result.operator_report_path)
+        assert operator_path.exists()
+        text = operator_path.read_text(encoding="utf-8")
+        assert "STEP 3 — BATTER REVIEW" in text
+        assert "STEP 4 — TEAM CLUSTER RANKINGS" in text
+        assert "STEP 5 — SLIP CONSTRUCTION" in text
+        assert "Confidence warning" in text
 
 
 def test_daily_pipeline_blocks_when_step2_validation_is_incomplete():

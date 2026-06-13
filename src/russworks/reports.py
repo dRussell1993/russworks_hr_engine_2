@@ -152,6 +152,23 @@ class ReportGenerator:
     def export_json(self, report: FullRussWorksReport, *, indent: int | None = 2) -> str:
         return report.to_json(indent=indent)
 
+    def generate_operator_markdown(self, report: FullRussWorksReport) -> str:
+        lines = [
+            f"# Russ-Works Operator Report — {report.context.report_date}",
+            "",
+            f"Validation Status: **{report.context.validation_status}**",
+            f"Games Reviewed: **{report.context.games_reviewed}**",
+            "",
+        ]
+        if report.context.warnings:
+            lines.extend(["## Validation Warnings", ""])
+            lines.extend(f"- {warning}" for warning in report.context.warnings)
+            lines.append("")
+        lines.extend(_operator_step3(report.step3.batter_reviews))
+        lines.extend(_operator_step4(report.step4.team_rankings))
+        lines.extend(_operator_step5(report.step5))
+        return "\n".join(lines).rstrip() + "\n"
+
 
 def load_full_report_json(path: str | Path) -> Dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as handle:
@@ -184,6 +201,7 @@ def _batter_review_row(review: BatterReview) -> Dict[str, Any]:
         "hr_pct": review.hr_pct,
         "russ_score": review.final_russ_score,
         "tier": _enum_value(review.russ_tier),
+        "score_band": review.score_band,
         "tag": review.tag_contribution,
         "cps": review.cps_contribution,
         "lstm": review.lstm_score,
@@ -240,6 +258,116 @@ def _batter_review_row(review: BatterReview) -> Dict[str, Any]:
     }
 
 
+def _operator_step3(reviews: Sequence[Mapping[str, Any]]) -> List[str]:
+    lines = ["## STEP 3 — BATTER REVIEW", "", "Every batter reviewed in processed games.", ""]
+    headers = ["Batter", "Team", "Tier", "Band", "Russ", "Conf", "TAG/CPS", "LSTM", "PVS", "Weak", "Pitch Mix", "Bullpen", "Park", "Flags", "Reasoning"]
+    rows = []
+    for review in sorted(reviews, key=lambda row: (float(row.get("russ_score", 0.0)), float(row.get("confidence", {}).get("score", 0.0))), reverse=True):
+        flags = _flags(review)
+        confidence = review.get("confidence", {})
+        rows.append(
+            [
+                review.get("batter", ""),
+                review.get("team", ""),
+                review.get("tier", ""),
+                review.get("score_band", ""),
+                review.get("russ_score", ""),
+                f"{confidence.get('grade', '')} {confidence.get('score', '')}",
+                f"{review.get('tag', '')}/{review.get('cps', '')}",
+                review.get("lstm", ""),
+                review.get("pvs", ""),
+                review.get("weak_spot_collision", {}).get("grade", ""),
+                review.get("pitch_mix", {}).get("grade", ""),
+                review.get("bullpen", {}).get("grade", ""),
+                review.get("park_factor", {}).get("grade", ""),
+                ", ".join(flags),
+                _short_reason(review),
+            ]
+        )
+    lines.append(md_table(headers, rows))
+    lines.append("")
+    return lines
+
+
+def _operator_step4(team_rankings: Sequence[Mapping[str, Any]]) -> List[str]:
+    lines = ["## STEP 4 — TEAM CLUSTER RANKINGS", ""]
+    headers = ["Rank", "Team", "TAG", "CPS", "Cluster Score", "Label", "Captain", "Hidden Beneficiary", "Non-Superstar Core", "Warnings"]
+    rows = []
+    for row in team_rankings:
+        warnings = []
+        confidence = row.get("confidence", {})
+        if confidence.get("grade") in {"Low", "Very Low"}:
+            warnings.append(f"{confidence.get('grade')} confidence")
+        rows.append(
+            [
+                row.get("rank", ""),
+                row.get("team", ""),
+                row.get("tag_grade", ""),
+                row.get("cps_grade", ""),
+                row.get("total_cluster_score", ""),
+                row.get("cluster_strength_label", ""),
+                row.get("cluster_captain", ""),
+                row.get("hidden_cluster_beneficiary", ""),
+                ", ".join(row.get("non_superstar_cluster_bats", [])[:4]) if row.get("non_superstar_cluster_bats") else "",
+                "; ".join(warnings),
+            ]
+        )
+    lines.append(md_table(headers, rows))
+    lines.append("")
+    return lines
+
+
+def _operator_step5(step5: Step5Report) -> List[str]:
+    lines = ["## STEP 5 — SLIP CONSTRUCTION", ""]
+    groups = [
+        ("Core Slips", step5.core_slips),
+        ("Non-Superstar Core Slips", step5.non_superstar_core_slips),
+        ("Balanced Slips", step5.balanced_slips),
+        ("Chaos Slips", step5.chaos_slips),
+        ("Contrarian Slips", step5.contrarian_slips),
+    ]
+    for title, slips in groups:
+        lines.extend([f"### {title}", ""])
+        if not slips:
+            lines.extend(["No slips generated.", ""])
+            continue
+        for slip in slips:
+            confidence = slip.get("confidence", {})
+            lines.append(f"**{slip.get('name', '')}** — {confidence.get('grade', '')} confidence ({confidence.get('score', '')})")
+            lines.append(f"- Why: {slip.get('justification', '')}")
+            lines.append("- Legs:")
+            for leg in slip.get("legs", []):
+                lines.append(
+                    f"  - {leg.get('batter', '')} ({leg.get('team', '')}) — {leg.get('slip_role', '')}, Russ {leg.get('russ_score', '')}, {leg.get('confidence', {}).get('grade', '')} confidence. {leg.get('justification', '')}"
+                )
+            if confidence.get("grade") in {"Low", "Very Low"}:
+                lines.append(f"- Confidence warning: {', '.join(confidence.get('reasoning', []))}")
+            lines.append("")
+    return lines
+
+
+def _flags(review: Mapping[str, Any]) -> List[str]:
+    flags = []
+    if review.get("ypi", {}).get("flag"):
+        flags.append("YPI")
+    if review.get("veteran_bounce", {}).get("flag"):
+        flags.append("Veteran")
+    if review.get("catcher_power", {}).get("flag"):
+        flags.append("Catcher")
+    if review.get("non_superstar_core"):
+        flags.append("Non-Star")
+    if review.get("weak_spot_collision", {}).get("flag"):
+        flags.append("Weak Spot")
+    return flags
+
+
+def _short_reason(review: Mapping[str, Any]) -> str:
+    notes = list(review.get("notes", []) or [])
+    confidence_reasons = list(review.get("confidence", {}).get("reasoning", []) or [])
+    parts = [*notes[:2], *(confidence_reasons[:1])]
+    return " | ".join(str(part) for part in parts)
+
+
 def _team_ranking_row(rank: int, report: TeamClusterReport) -> Dict[str, Any]:
     return {
         "rank": rank,
@@ -251,6 +379,7 @@ def _team_ranking_row(rank: int, report: TeamClusterReport) -> Dict[str, Any]:
         "cluster_strength_label": report.cluster_strength_label,
         "cluster_captain": report.cluster_captain,
         "hidden_cluster_beneficiary": report.hidden_cluster_beneficiary,
+        "non_superstar_cluster_bats": list(report.non_superstar_cluster_bats),
         "batter_count": report.batter_count,
         "confidence": {
             "score": report.confidence_score,

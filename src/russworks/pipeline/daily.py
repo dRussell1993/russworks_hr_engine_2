@@ -121,7 +121,7 @@ class RussWorksPipeline:
             simulation = self.simulate_portfolio(step5, portfolio)
             self_learning = self.build_self_learning_report(simulation)
             report = self.generate_full_report(validation_plan.process_slate, step3, step4, step5, portfolio, diversification, simulation, self_learning, validation_plan)
-            output_dir, report_path = self.save_outputs(run_request, report)
+            output_dir, report_path, operator_report_path = self.save_outputs(run_request, report)
             _, integrity_path = self.save_integrity_report(run_request, integrity_report)
             _, portfolio_path = self.save_portfolio_report(run_request, portfolio)
             _, diversification_path = self.save_diversification_report(run_request, diversification)
@@ -139,6 +139,7 @@ class RussWorksPipeline:
                 total_batters_reviewed=step3.reviewed_batters,
                 output_dir=str(output_dir),
                 report_json_path=str(report_path),
+                operator_report_path=str(operator_report_path),
                 integrity_report_path=str(integrity_path),
                 portfolio_report_path=str(portfolio_path),
                 diversification_report_path=str(diversification_path),
@@ -267,14 +268,16 @@ class RussWorksPipeline:
             self_learning=self_learning.to_dict() if self_learning else {},
         )
 
-    def save_outputs(self, request: DailyRunRequest, report: FullRussWorksReport) -> tuple[Path, Path]:
+    def save_outputs(self, request: DailyRunRequest, report: FullRussWorksReport) -> tuple[Path, Path, Path]:
         output_dir = Path(request.output_root) / request.date
         output_dir.mkdir(parents=True, exist_ok=True)
         report_path = output_dir / "russworks_full_report.json"
         report_path.write_text(report.to_json(), encoding="utf-8")
+        operator_report_path = output_dir / "russworks_operator_report.md"
+        operator_report_path.write_text(self._report_generator.generate_operator_markdown(report), encoding="utf-8")
         if report.explanations:
             ExplainabilityEngine().export_json(report.explanations, Path(request.output_root).parent / "explanations")
-        return output_dir, report_path
+        return output_dir, report_path, operator_report_path
 
     def save_integrity_report(self, request: DailyRunRequest, report: IntegrityReport) -> tuple[Path, Path]:
         integrity_dir = Path(request.output_root).parent / "integrity"
@@ -640,6 +643,7 @@ def _replace_result(result: DailyRunResult, **changes) -> DailyRunResult:
         "total_batters_reviewed": result.total_batters_reviewed,
         "output_dir": result.output_dir,
         "report_json_path": result.report_json_path,
+        "operator_report_path": result.operator_report_path,
         "integrity_report_path": result.integrity_report_path,
         "portfolio_report_path": result.portfolio_report_path,
         "diversification_report_path": result.diversification_report_path,

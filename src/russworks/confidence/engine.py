@@ -36,11 +36,11 @@ class ConfidenceEngine:
     def grade_score(self, score: float) -> str:
         if score >= 90.0:
             return "Elite"
-        if score >= 78.0:
+        if score >= 76.0:
             return "High"
-        if score >= 62.0:
+        if score >= 58.0:
             return "Medium"
-        if score >= 45.0:
+        if score >= 38.0:
             return "Low"
         return "Very Low"
 
@@ -159,6 +159,14 @@ def _reasoning(breakdown: ConfidenceBreakdown, context: Mapping[str, Any]) -> li
         f"Strongest confidence input: {strongest.replace('_', ' ')} ({values[strongest]:.1f}).",
         f"Weakest confidence input: {weakest.replace('_', ' ')} ({values[weakest]:.1f}).",
     ]
+    missing_inputs = [name.replace("_", " ") for name, value in values.items() if value <= 20.0]
+    weak_signal = [name.replace("_", " ") for name, value in values.items() if 20.0 < value < 55.0]
+    if missing_inputs:
+        notes.append("Low confidence is data-driven: missing or near-missing " + ", ".join(missing_inputs) + ".")
+    elif weak_signal:
+        notes.append("Low confidence is signal-driven: weak " + ", ".join(weak_signal) + ".")
+    else:
+        notes.append("Confidence has complete inputs; grade reflects signal strength rather than missing data.")
     if context.get("reason"):
         notes.append(str(context["reason"]))
     if context.get("integrity_alerts"):

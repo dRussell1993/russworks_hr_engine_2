@@ -305,6 +305,7 @@ def _unique_names(names: Iterable[str]) -> List[str]:
 
 
 def _leg(report: TeamClusterReport, batter: str, role: str, justification: str) -> SlipLeg:
+    confidence_warning = _confidence_warning(report)
     return SlipLeg(
         batter=batter,
         team=report.team,
@@ -312,7 +313,7 @@ def _leg(report: TeamClusterReport, batter: str, role: str, justification: str) 
         cps=report.cps_grade,
         russ_score=report.total_cluster_score,
         slip_role=role,
-        justification=justification,
+        justification=f"{justification} Cluster label: {report.cluster_strength_label}. Team score {report.total_cluster_score:.1f}. {confidence_warning}",
         confidence_score=report.confidence_score,
         confidence_grade=report.confidence_grade,
         confidence_reasoning=list(report.confidence_reasoning),
@@ -331,11 +332,12 @@ def _slip(
     unique_legs = _unique_legs(legs)
     if len(unique_legs) < min_legs:
         return None
+    confidence_warning = _confidence_warning(cluster)
     return Slip(
         name=name,
         slip_type=slip_type,
         legs=unique_legs,
-        justification=justification,
+        justification=f"{justification} Confidence warning: {confidence_warning}",
         metadata={
             "team": cluster.team,
             "opponent": cluster.opponent,
@@ -371,6 +373,12 @@ def _unique_legs(legs: Sequence[SlipLeg]) -> List[SlipLeg]:
         seen.add(leg.batter)
         unique.append(leg)
     return unique
+
+
+def _confidence_warning(cluster: TeamClusterReport) -> str:
+    if cluster.confidence_grade in {"Low", "Very Low"}:
+        return f"Confidence warning: {cluster.confidence_grade} confidence ({cluster.confidence_score:.1f}); verify weak spot, pitch mix, and sample-size signal before betting."
+    return f"Confidence check: {cluster.confidence_grade} confidence ({cluster.confidence_score:.1f})."
 
 
 def _all_report_names(report: TeamClusterReport) -> set[str]:

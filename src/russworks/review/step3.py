@@ -197,6 +197,7 @@ class Step3ReviewEngine:
             weak_spot_collision_flag=weak_spot_collision_flag,
             final_russ_score=final_score,
             russ_tier=_tier(final_score),
+            score_band=_score_band(final_score, non_superstar_core_flag),
             notes=_review_notes(
                 ypi_flag,
                 catcher_power_flag,
@@ -616,24 +617,46 @@ def _final_russ_score(
     bullpen_exposure_flag: bool,
     park_factor_flag: bool,
 ) -> float:
-    score = 35.0
-    score += batter.hr_pct * 1.15
-    score += lstm_score * 0.85
-    score += (tag_score - 60.0) * 0.18
-    score += (cps_score - 60.0) * 0.22
-    score += pvs_score
-    score += environment_score * 0.75
-    score += umpire_score * 0.25
-    score += 7.0 if ypi_flag else 0.0
-    score += 7.0 if catcher_power_flag else 0.0
-    score += 4.0 if veteran_bounce_flag else 0.0
-    score += 3.0 if non_superstar_core_flag else 0.0
-    score += 4.0 if pitch_mix_matchup_flag else 0.0
-    score += 4.0 if bullpen_exposure_flag else 0.0
-    score += 3.0 if park_factor_flag else 0.0
+    score = 18.0
+    score += min(18.0, max(0.0, batter.hr_pct) * 0.75)
+    score += min(11.0, max(0.0, lstm_score) * 0.42)
+    score += _normalized_component(tag_score, baseline=55.0, span=45.0, points=12.0)
+    score += _normalized_component(cps_score, baseline=55.0, span=45.0, points=12.0)
+    score += min(13.0, max(0.0, pvs_score) * 0.70)
+    score += _normalized_component(environment_score, baseline=0.0, span=25.0, points=7.0)
+    score += _normalized_component(umpire_score, baseline=0.0, span=18.0, points=4.0)
+    score += 3.0 if ypi_flag else 0.0
+    score += 2.5 if catcher_power_flag else 0.0
+    score += 2.0 if veteran_bounce_flag else 0.0
+    score += 2.0 if non_superstar_core_flag else 0.0
+    score += 2.0 if pitch_mix_matchup_flag else 0.0
+    score += 2.0 if bullpen_exposure_flag else 0.0
+    score += 2.0 if park_factor_flag else 0.0
     if _has_any_tag(batter, {"superstar"}) and pvs_score < 5 and lstm_score < 10:
         score -= 3.0
-    return round(max(20.0, min(score, 99.0)), 1)
+    if batter.lineup_slot and batter.lineup_slot >= 8:
+        score -= 2.0
+    return round(max(18.0, min(score, 96.0)), 1)
+
+
+def _normalized_component(value: float, *, baseline: float, span: float, points: float) -> float:
+    if span <= 0:
+        return 0.0
+    return max(0.0, min(points, (value - baseline) / span * points))
+
+
+def _score_band(score: float, non_superstar_core_flag: bool) -> str:
+    if score >= 86.0:
+        return "Elite Core"
+    if score >= 78.0:
+        return "Core Target"
+    if score >= 70.0:
+        return "Strong Play"
+    if score >= 62.0:
+        return "Value/Non-Superstar Core" if non_superstar_core_flag else "Value Target"
+    if score >= 52.0:
+        return "Chaos"
+    return "Fade"
 
 
 def _tier(score: float) -> RussTier:

@@ -26,6 +26,7 @@ class BatterReview:
     weak_spot_collision_flag: bool
     final_russ_score: float
     russ_tier: RussTier
+    score_band: str = "Fade"
     notes: List[str] = field(default_factory=list)
     weak_spot_collision_score: float = 0.0
     weak_spot_collision_confidence: float = 0.0
