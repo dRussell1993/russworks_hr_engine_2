@@ -136,6 +136,7 @@ class CommandCenterEngine:
             portfolio_risk_summary=_portfolio_risk_summary(daily_run_result),
             diversification_summary=_diversification_summary(daily_run_result),
             simulation_summary=_simulation_summary(daily_run_result),
+            self_learning_summary=_self_learning_summary(daily_run_result),
         )
 
     def execution_summary(
@@ -174,6 +175,7 @@ class CommandCenterEngine:
             portfolio_report_path=daily_run_result.portfolio_report_path if daily_run_result else "",
             diversification_report_path=daily_run_result.diversification_report_path if daily_run_result else "",
             simulation_report_path=daily_run_result.simulation_report_path if daily_run_result else "",
+            self_learning_report_path=daily_run_result.self_learning_report_path if daily_run_result else "",
             errors=errors,
             warnings=warnings,
         )
@@ -359,6 +361,8 @@ def _exports_generated(
         exports.append(daily_run_result.diversification_report_path)
     if daily_run_result and daily_run_result.simulation_report_path:
         exports.append(daily_run_result.simulation_report_path)
+    if daily_run_result and daily_run_result.self_learning_report_path:
+        exports.append(daily_run_result.self_learning_report_path)
     if explanations_path:
         exports.append(explanations_path)
     return exports
@@ -430,6 +434,19 @@ def _simulation_summary(daily_run_result: DailyRunResult | None) -> dict[str, An
         "drawdown_risk": summary.drawdown_risk,
         "portfolio_volatility": summary.portfolio_volatility,
         "risk_grade": summary.risk_grade.value,
+    }
+
+
+def _self_learning_summary(daily_run_result: DailyRunResult | None) -> dict[str, Any]:
+    if daily_run_result is None or daily_run_result.self_learning_report is None:
+        return {}
+    report = daily_run_result.self_learning_report
+    return {
+        "observation_count": len(report.observations),
+        "insight_count": len(report.insights),
+        "recommendation_count": len(report.recommendations),
+        "top_performing_modules": list(report.summary.top_performing_modules[:5]),
+        "underperforming_modules": list(report.summary.underperforming_modules[:5]),
     }
 
 

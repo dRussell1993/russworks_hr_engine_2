@@ -12,6 +12,7 @@ from russworks.diversification import DiversificationResult
 from russworks.portfolio import PortfolioProfile
 from russworks.postmortem import PostMortemReport
 from russworks.review import BatterReview, BatterReviewResult
+from russworks.self_learning import SelfLearningReport
 from russworks.simulation import SimulationResult
 from russworks.slips import Slip, SlipPortfolio
 
@@ -122,6 +123,7 @@ class ExplainabilityEngine:
         portfolio_profile: PortfolioProfile | None = None,
         diversification_result: DiversificationResult | None = None,
         simulation_result: SimulationResult | None = None,
+        self_learning_report: SelfLearningReport | None = None,
     ) -> dict[str, Any]:
         batter_explanations = [
             self.explain_batter_review(review).to_dict()
@@ -145,6 +147,7 @@ class ExplainabilityEngine:
             "portfolio_context": _portfolio_context(portfolio_profile),
             "diversification_context": _diversification_context(diversification_result),
             "simulation_context": _simulation_context(simulation_result),
+            "self_learning_context": _self_learning_context(self_learning_report),
             "summaries": _summaries(batter_explanations, team_explanations, slip_explanations),
         }
 
@@ -273,6 +276,25 @@ def _simulation_context(result: SimulationResult | None) -> dict[str, Any]:
         "portfolio_volatility": result.summary.portfolio_volatility,
         "risk_grade": result.summary.risk_grade.value,
         "notes": list(result.notes),
+    }
+
+
+def _self_learning_context(report: SelfLearningReport | None) -> dict[str, Any]:
+    if report is None:
+        return {}
+    return {
+        "top_performing_modules": list(report.summary.top_performing_modules),
+        "underperforming_modules": list(report.summary.underperforming_modules),
+        "emerging_trends": list(report.summary.emerging_trends),
+        "recommendations": [
+            {
+                "type": recommendation.recommendation_type.value,
+                "subject": recommendation.subject,
+                "action": recommendation.action,
+                "confidence": recommendation.confidence,
+            }
+            for recommendation in report.summary.confidence_ranked_recommendations
+        ],
     }
 
 

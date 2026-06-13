@@ -12,6 +12,7 @@ from russworks.diversification import DiversificationResult
 from russworks.integrity import IntegrityReport
 from russworks.portfolio import PortfolioProfile
 from russworks.postmortem import PostMortemReport
+from russworks.self_learning import SelfLearningReport
 from russworks.simulation import SimulationResult
 
 from .dashboard_models import (
@@ -57,6 +58,7 @@ class CalibrationDashboardEngine:
         portfolio_profile: PortfolioProfile | None = None,
         diversification_result: DiversificationResult | None = None,
         simulation_result: SimulationResult | None = None,
+        self_learning_report: SelfLearningReport | None = None,
     ) -> CalibrationDashboard:
         modules = _module_performances(calibration_result, backtest_result)
         top = sorted(modules, key=lambda item: (item.confidence_accuracy, item.hit_rate, item.wins), reverse=True)[:5]
@@ -70,6 +72,7 @@ class CalibrationDashboardEngine:
         portfolio_summaries = _portfolio_summaries(portfolio_profile)
         diversification_summaries = _diversification_summaries(diversification_result)
         simulation_summaries = _simulation_summaries(simulation_result)
+        self_learning_summaries = _self_learning_summaries(self_learning_report)
         errors = []
         if calibration_result and calibration_result.errors:
             errors.extend(calibration_result.errors)
@@ -91,6 +94,7 @@ class CalibrationDashboardEngine:
             portfolio_summaries=portfolio_summaries,
             diversification_summaries=diversification_summaries,
             simulation_summaries=simulation_summaries,
+            self_learning_summaries=self_learning_summaries,
             errors=errors,
         )
 
@@ -166,6 +170,7 @@ def build_calibration_dashboard(
     portfolio_profile: PortfolioProfile | None = None,
     diversification_result: DiversificationResult | None = None,
     simulation_result: SimulationResult | None = None,
+    self_learning_report: SelfLearningReport | None = None,
 ) -> CalibrationDashboard:
     return CalibrationDashboardEngine().build_dashboard(
         calibration_result=calibration_result,
@@ -176,6 +181,7 @@ def build_calibration_dashboard(
         portfolio_profile=portfolio_profile,
         diversification_result=diversification_result,
         simulation_result=simulation_result,
+        self_learning_report=self_learning_report,
     )
 
 
@@ -384,6 +390,16 @@ def _simulation_summaries(result: SimulationResult | None) -> list[str]:
         f"Monte Carlo simulations: {result.summary.simulation_count}.",
         f"Expected hit rate {result.summary.expected_hit_rate:.1%}, expected ROI {result.summary.expected_roi:.1%}.",
         f"Simulation risk grade {result.summary.risk_grade.value}.",
+    ]
+
+
+def _self_learning_summaries(report: SelfLearningReport | None) -> list[str]:
+    if report is None:
+        return []
+    return [
+        f"Self-learning observations: {len(report.observations)}.",
+        f"Self-learning recommendations: {len(report.recommendations)}.",
+        f"Top self-learning modules: {', '.join(report.summary.top_performing_modules[:3]) if report.summary.top_performing_modules else 'none'}.",
     ]
 
 

@@ -31,6 +31,7 @@ class FormulaHealthReport:
     portfolio_risk_summary: dict[str, Any] = field(default_factory=dict)
     diversification_summary: dict[str, Any] = field(default_factory=dict)
     simulation_summary: dict[str, Any] = field(default_factory=dict)
+    self_learning_summary: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,7 @@ class DailyExecutionSummary:
     portfolio_report_path: str = ""
     diversification_report_path: str = ""
     simulation_report_path: str = ""
+    self_learning_report_path: str = ""
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
