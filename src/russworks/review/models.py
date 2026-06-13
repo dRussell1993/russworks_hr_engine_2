@@ -42,6 +42,9 @@ class BatterReview:
     pitch_mix_matchup_score: float = 0.0
     pitch_mix_matchup_confidence: float = 0.0
     pitch_mix_matchup_grade: str = "Weak"
+    bullpen_exposure_score: float = 0.0
+    bullpen_exposure_confidence: float = 0.0
+    bullpen_exposure_grade: str = "Weak"
 
 
 @dataclass(frozen=True)

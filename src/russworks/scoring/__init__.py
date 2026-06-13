@@ -4,6 +4,13 @@ from statistics import mean
 from typing import Dict, List, Tuple
 
 from ..models import Batter, BatterScore, Game, Pitcher, RussTier, TeamClusterScore
+from .bullpen import (
+    BullpenExposureEngine,
+    BullpenExposureResult,
+    BullpenProfile,
+    RelieverProfile,
+    calculate_bullpen_exposure_score,
+)
 from .catcher import CatcherPowerEngine, CatcherPowerResult, CatcherProfile, calculate_catcher_power_score
 from .cps import ClusterParticipationInput, ClusterParticipationScore, calculate_cps as calculate_cps_module
 from .environment import EnvironmentScore, EnvironmentScoreInput, calculate_environment_score
@@ -274,6 +281,9 @@ __all__ = [
     "CatcherPowerResult",
     "CatcherProfile",
     "BatterPitchProfile",
+    "BullpenExposureEngine",
+    "BullpenExposureResult",
+    "BullpenProfile",
     "ClusterParticipationInput",
     "ClusterParticipationScore",
     "CollisionResult",
@@ -287,12 +297,14 @@ __all__ = [
     "PitcherWeakSpotProfile",
     "PitchVulnerabilityInput",
     "PitchVulnerabilityScore",
+    "RelieverProfile",
     "TeamAttackGrade",
     "TeamAttackGradeInput",
     "UmpireScore",
     "UmpireScoreInput",
     "WeakSpotCollisionEngine",
     "WeakSpotProfile",
+    "calculate_bullpen_exposure_score",
     "calculate_catcher_power_score",
     "calculate_cps_module",
     "calculate_environment_score",
