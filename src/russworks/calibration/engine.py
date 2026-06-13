@@ -93,6 +93,15 @@ class FormulaCalibrationEngine:
     def export_json(self, result: CalibrationResult, *, indent: int | None = 2) -> str:
         return result.to_json(indent=indent)
 
+    def build_dashboard(self, result: CalibrationResult, *, postmortem_reports: Sequence[PostMortemReport] = (), backtest_result: BacktestResult | None = None):
+        from russworks.dashboard import CalibrationDashboardEngine
+
+        return CalibrationDashboardEngine().build_dashboard(
+            calibration_result=result,
+            postmortem_reports=postmortem_reports,
+            backtest_result=backtest_result,
+        )
+
 
 def calibrate_formula(
     step3_results: BatterReviewResult | Sequence[BatterReviewResult] | Sequence[BatterReview],

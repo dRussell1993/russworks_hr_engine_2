@@ -91,6 +91,15 @@ class PostMortemEngine:
     def generate_calibration_recommendations(self) -> List[CalibrationRecommendation]:
         return list(self.calibration_recommendations)
 
+    def build_dashboard(self, calibration_result=None, backtest_result=None):
+        from russworks.dashboard import CalibrationDashboardEngine
+
+        return CalibrationDashboardEngine().build_dashboard(
+            calibration_result=calibration_result,
+            postmortem_reports=[self._report()],
+            backtest_result=backtest_result,
+        )
+
     def _validate_portfolio(self, portfolio: SlipPortfolio | None) -> List[str]:
         if portfolio is None:
             return ["Post-mortem requires a Step 5 slip portfolio."]
