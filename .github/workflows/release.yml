@@ -1,0 +1,23 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  container-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build deployment image
+        run: docker build -t russworks-hr-engine:release .
+
+      - name: Validate runtime configuration
+        run: docker run --rm russworks-hr-engine:release python -m russworks.deployment.runtime --validate-only
+
+      - name: Import smoke
+        run: docker run --rm russworks-hr-engine:release python -c "import russworks; import russworks.deployment; import russworks.providers; print('release import smoke ok')"

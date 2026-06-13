@@ -27,3 +27,56 @@ See `/templates` for CSV templates.
 ## Core rule
 
 Step 3 will fail if Step 2 is incomplete. This prevents shortcuts.
+
+## Deployment
+
+Phase 36 adds container support for local and production-style runtime use.
+
+### Local Docker Run
+
+```bash
+cp .env.example .env
+docker compose run --rm russworks-validate
+docker compose run --rm russworks-daily
+```
+
+Set `RUSSWORKS_RUN_DATE=YYYY-MM-DD` in `.env` before running the daily service.
+
+### Runtime Configuration
+
+The container reads environment variables for runtime mode, provider mode, data
+paths, output paths, schedule metadata, and optional live provider URLs/API keys.
+CSV mode is the default and does not require paid APIs.
+
+Important variables:
+
+- `RUSSWORKS_RUNTIME_MODE`: `local` or `production`
+- `RUSSWORKS_PROVIDER_MODE`: `csv` or `live`
+- `RUSSWORKS_RUN_DATE`: daily slate date
+- `RUSSWORKS_DATA_ROOT`: mounted daily input root
+- `RUSSWORKS_OUTPUT_ROOT`: mounted report output root
+- `RUSSWORKS_CONFIG_PATH`: mounted user config path
+- `RUSSWORKS_REPORT_VOLUME`: mounted report volume root
+
+### Volumes
+
+The compose setup mounts:
+
+- `./data:/app/data`
+- `./config:/app/config:ro`
+
+Daily reports are written under `data/outputs/YYYY-MM-DD/`. Sidecar outputs are
+written under `data/integrity/`, `data/portfolio/`, `data/diversification/`,
+`data/simulation/`, and `data/self_learning/`.
+
+### Scheduled Execution
+
+The image does not run a scheduler daemon. Use host cron, Task Scheduler, GitHub
+Actions, or another orchestrator to call:
+
+```bash
+docker compose run --rm russworks-daily
+```
+
+`RUSSWORKS_SCHEDULE_ENABLED` and `RUSSWORKS_DAILY_RUN_TIME_UTC` are stored as
+runtime metadata for operators and future schedulers.
