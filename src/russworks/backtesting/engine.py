@@ -120,6 +120,18 @@ class HistoricalBacktestEngine:
             current_weights=current_weights,
         )
 
+    def build_optimizer(self, result: BacktestResult, *, calibration_result=None, dashboard=None, recommendation_report=None, trend_summary=None, current_weights=None):
+        from russworks.optimizer import FormulaOptimizer
+
+        return FormulaOptimizer().optimize(
+            backtest_result=result,
+            calibration_result=calibration_result,
+            dashboard=dashboard,
+            recommendation_report=recommendation_report,
+            trend_summary=trend_summary,
+            current_weights=current_weights,
+        )
+
     def _load_slate(self, day: str, request: BacktestRequest) -> DailySlate:
         if self._slate_loader is not None:
             return self._slate_loader(day)

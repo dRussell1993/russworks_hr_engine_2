@@ -129,6 +129,27 @@ class FormulaCalibrationEngine:
             backtest_result=backtest_result,
         )
 
+    def build_optimizer(
+        self,
+        result: CalibrationResult,
+        *,
+        dashboard=None,
+        recommendation_report=None,
+        trend_summary=None,
+        backtest_result: BacktestResult | None = None,
+        current_weights=None,
+    ):
+        from russworks.optimizer import FormulaOptimizer
+
+        return FormulaOptimizer().optimize(
+            calibration_result=result,
+            dashboard=dashboard,
+            recommendation_report=recommendation_report,
+            trend_summary=trend_summary,
+            backtest_result=backtest_result,
+            current_weights=current_weights,
+        )
+
 
 def calibrate_formula(
     step3_results: BatterReviewResult | Sequence[BatterReviewResult] | Sequence[BatterReview],
