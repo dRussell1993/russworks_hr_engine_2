@@ -9,6 +9,7 @@ from russworks.backtesting import BacktestResult, DailyBacktestSummary
 from russworks.calibration import CalibrationMetric, CalibrationResult
 from russworks.confidence import ConfidenceEngine, ConfidenceResult
 from russworks.integrity import IntegrityReport
+from russworks.portfolio import PortfolioProfile
 from russworks.postmortem import PostMortemReport
 
 from .dashboard_models import (
@@ -51,6 +52,7 @@ class CalibrationDashboardEngine:
         backtest_result: BacktestResult | None = None,
         integrity_report: IntegrityReport | None = None,
         confidence_results: Sequence[ConfidenceResult] = (),
+        portfolio_profile: PortfolioProfile | None = None,
     ) -> CalibrationDashboard:
         modules = _module_performances(calibration_result, backtest_result)
         top = sorted(modules, key=lambda item: (item.confidence_accuracy, item.hit_rate, item.wins), reverse=True)[:5]
@@ -61,6 +63,7 @@ class CalibrationDashboardEngine:
         summaries = _summaries(modules, top, worst, thirty_day, season, archetypes, calibration_result)
         integrity_summaries = _integrity_summaries(integrity_report)
         confidence_summaries = ConfidenceEngine().summarize_results(list(confidence_results))
+        portfolio_summaries = _portfolio_summaries(portfolio_profile)
         errors = []
         if calibration_result and calibration_result.errors:
             errors.extend(calibration_result.errors)
@@ -79,6 +82,7 @@ class CalibrationDashboardEngine:
             trend_summaries=summaries,
             integrity_summaries=integrity_summaries,
             confidence_summaries=confidence_summaries,
+            portfolio_summaries=portfolio_summaries,
             errors=errors,
         )
 
@@ -151,6 +155,7 @@ def build_calibration_dashboard(
     backtest_result: BacktestResult | None = None,
     integrity_report: IntegrityReport | None = None,
     confidence_results: Sequence[ConfidenceResult] = (),
+    portfolio_profile: PortfolioProfile | None = None,
 ) -> CalibrationDashboard:
     return CalibrationDashboardEngine().build_dashboard(
         calibration_result=calibration_result,
@@ -158,6 +163,7 @@ def build_calibration_dashboard(
         backtest_result=backtest_result,
         integrity_report=integrity_report,
         confidence_results=confidence_results,
+        portfolio_profile=portfolio_profile,
     )
 
 
@@ -338,6 +344,15 @@ def _integrity_summaries(report: IntegrityReport | None) -> list[str]:
         "Data integrity alerts: "
         + ", ".join(f"{severity}={count}" for severity, count in counts.items() if count)
         + "."
+    ]
+
+
+def _portfolio_summaries(profile: PortfolioProfile | None) -> list[str]:
+    if profile is None:
+        return []
+    return [
+        f"Portfolio risk {profile.risk_report.risk_grade.value} at {profile.risk_report.risk_score:.1f}.",
+        f"Portfolio recommendations generated: {len(profile.recommendations)}.",
     ]
 
 

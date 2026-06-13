@@ -28,6 +28,7 @@ class FormulaHealthReport:
     modules_cooling_off: list[str] = field(default_factory=list)
     optimizer_recommendations: list[dict[str, Any]] = field(default_factory=list)
     confidence_summary: dict[str, Any] = field(default_factory=dict)
+    portfolio_risk_summary: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class DailyExecutionSummary:
     reports_generated: list[str] = field(default_factory=list)
     exports_generated: list[str] = field(default_factory=list)
     integrity_report_path: str = ""
+    portfolio_report_path: str = ""
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 

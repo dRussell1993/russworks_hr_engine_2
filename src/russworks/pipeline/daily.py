@@ -9,6 +9,7 @@ from russworks.data import CSVDataProvider, DailySlate, load_daily_slate as load
 from russworks.explainability import ExplainabilityEngine
 from russworks.integrity import IntegrityEngine, IntegrityReport
 from russworks.intake import ReviewQueue, validate_step2_intake
+from russworks.portfolio import PortfolioEngine, PortfolioProfile
 from russworks.reports import FullRussWorksReport, ReportGenerator
 from russworks.review import BatterReviewResult, review_all_batters
 from russworks.slips import SlipPortfolio, generate_slip_portfolio
@@ -31,6 +32,7 @@ class RussWorksPipeline:
         self._slate_loader = slate_loader
         self._report_generator = ReportGenerator()
         self._integrity_engine = IntegrityEngine()
+        self._portfolio_engine = PortfolioEngine()
         self._active_config: RussWorksUserConfig | None = None
         self._provider_results = []
         self._provider_health = []
@@ -74,9 +76,11 @@ class RussWorksPipeline:
 
             step4 = self.run_step4(step3)
             step5 = self.run_step5(step4)
-            report = self.generate_full_report(slate, step3, step4, step5)
+            portfolio = self.analyze_portfolio(step5)
+            report = self.generate_full_report(slate, step3, step4, step5, portfolio)
             output_dir, report_path = self.save_outputs(run_request, report)
             _, integrity_path = self.save_integrity_report(run_request, integrity_report)
+            _, portfolio_path = self.save_portfolio_report(run_request, portfolio)
             errors = [*step4.errors, *step5.errors]
             return DailyRunResult(
                 request=run_request,
@@ -86,8 +90,10 @@ class RussWorksPipeline:
                 output_dir=str(output_dir),
                 report_json_path=str(report_path),
                 integrity_report_path=str(integrity_path),
+                portfolio_report_path=str(portfolio_path),
                 slate=slate,
                 integrity_report=integrity_report,
+                portfolio_report=portfolio,
                 step3_result=step3,
                 step4_result=step4,
                 step5_result=step5,
@@ -147,12 +153,16 @@ class RussWorksPipeline:
     def run_step5(self, step4_result: ClusterRanking) -> SlipPortfolio:
         return generate_slip_portfolio(step4_result, user_config=self._active_config)
 
+    def analyze_portfolio(self, step5_result: SlipPortfolio) -> PortfolioProfile:
+        return self._portfolio_engine.analyze_portfolio(step5_result)
+
     def generate_full_report(
         self,
         slate: DailySlate,
         step3_result: BatterReviewResult,
         step4_result: ClusterRanking,
         step5_result: SlipPortfolio,
+        portfolio: PortfolioProfile | None = None,
     ) -> FullRussWorksReport:
         context = slate.to_report_context()
         if self._active_config is not None:
@@ -161,6 +171,7 @@ class RussWorksPipeline:
             step3_results=step3_result,
             cluster_ranking=step4_result,
             slip_portfolio=step5_result,
+            portfolio_profile=portfolio,
         )
         return self._report_generator.generate_full_report(
             context=context,
@@ -168,6 +179,7 @@ class RussWorksPipeline:
             cluster_ranking=step4_result,
             slip_portfolio=step5_result,
             explanations=explanations,
+            portfolio=portfolio.to_dict() if portfolio else {},
         )
 
     def save_outputs(self, request: DailyRunRequest, report: FullRussWorksReport) -> tuple[Path, Path]:
@@ -182,6 +194,10 @@ class RussWorksPipeline:
     def save_integrity_report(self, request: DailyRunRequest, report: IntegrityReport) -> tuple[Path, Path]:
         integrity_dir = Path(request.output_root).parent / "integrity"
         return integrity_dir, self._integrity_engine.export_json(report, integrity_dir)
+
+    def save_portfolio_report(self, request: DailyRunRequest, report: PortfolioProfile) -> tuple[Path, Path]:
+        portfolio_dir = Path(request.output_root).parent / "portfolio"
+        return portfolio_dir, self._portfolio_engine.export_json(report, portfolio_dir)
 
 
 def run_daily_pipeline(
