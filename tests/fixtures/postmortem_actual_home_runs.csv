@@ -1,0 +1,5 @@
+date,team,batter,pitch,pitcher,inning,exit_velocity,distance,angle,game_id
+2026-06-13,TEX,TEX YPI Bat,slider,KC Starter,2,106.2,411,28,tex-kc-1
+2026-06-13,KC,KC Hidden Value,changeup,TEX Starter,7,101.4,389,31,tex-kc-1
+2026-06-13,KC,KC Hidden Value,slider,TEX Starter,9,102.7,402,29,tex-kc-1
+2026-06-12,NYY,NYY Old Data,fastball,BOS Starter,4,104.1,399,26,nyy-bos-1
