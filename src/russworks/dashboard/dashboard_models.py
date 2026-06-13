@@ -54,6 +54,7 @@ class CalibrationDashboard:
     confidence_summaries: list[str] = field(default_factory=list)
     portfolio_summaries: list[str] = field(default_factory=list)
     diversification_summaries: list[str] = field(default_factory=list)
+    simulation_summaries: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     @property
