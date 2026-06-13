@@ -20,6 +20,17 @@ pip install -e .
 python -m russworks.main --sample
 ```
 
+## V1 Release Validation
+
+Phase 39 adds a startup self-test for release-candidate validation:
+
+```bash
+python -m russworks.validate
+```
+
+The self-test verifies package imports, user configuration loading, scheduler
+loading, provider registration, and schema-versioned report generation.
+
 ## Input CSVs
 
 See `/templates` for CSV templates.
