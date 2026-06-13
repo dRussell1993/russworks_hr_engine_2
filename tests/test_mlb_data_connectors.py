@@ -48,14 +48,7 @@ def _csv_slate(root: Path) -> None:
             }
         ],
     )
-    _write_csv(
-        root,
-        "lineups",
-        [
-            {"game_id": "tex-kc-1", "name": "KC Batter 1", "team": "KC", "lineup_slot": 1, "bats": "L", "hr_pct": 9.0},
-            {"game_id": "tex-kc-1", "name": "TEX Batter 1", "team": "TEX", "lineup_slot": 1, "bats": "R", "hr_pct": 12.0},
-        ],
-    )
+    _write_csv(root, "lineups", _lineup_rows("tex-kc-1", "KC", "L") + _lineup_rows("tex-kc-1", "TEX", "R"))
     _write_csv(
         root,
         "pitchers",
@@ -131,10 +124,7 @@ def _json_slate(path: Path) -> None:
                 "tags": ["Catcher", "YPI"],
             }
         ],
-        "lineups": [
-            {"game_id": "sea-oak-1", "name": "SEA Batter 1", "team": "SEA", "lineup_slot": 1, "bats": "L", "hr_pct": 10.0},
-            {"game_id": "sea-oak-1", "name": "OAK Batter 1", "team": "OAK", "lineup_slot": 1, "bats": "R", "hr_pct": 8.0},
-        ],
+        "lineups": _lineup_rows("sea-oak-1", "SEA", "L") + _lineup_rows("sea-oak-1", "OAK", "R"),
         "pitchers": [
             {"game_id": "sea-oak-1", "name": "SEA Starter", "team": "SEA", "throws": "R", "confirmed": True},
             {"game_id": "sea-oak-1", "name": "OAK Starter", "team": "OAK", "throws": "L", "confirmed": True},
@@ -160,6 +150,20 @@ def _json_slate(path: Path) -> None:
         "hr_matchups": [{"game_id": "sea-oak-1", "batter": "SEA Batter 1", "pitcher": "OAK Starter", "pitch_type": "fastball", "score": 7.0}],
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _lineup_rows(game_id: str, team: str, bats: str) -> list[dict[str, object]]:
+    return [
+        {
+            "game_id": game_id,
+            "name": f"{team} Batter {slot}",
+            "team": team,
+            "lineup_slot": slot,
+            "bats": bats,
+            "hr_pct": 8.0 + slot,
+        }
+        for slot in range(1, 10)
+    ]
 
 
 def test_phase16_provider_models_and_interfaces_exist():

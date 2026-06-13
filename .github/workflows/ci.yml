@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: python -m pip install -e .
+
+      - name: Import smoke tests
+        run: |
+          python - <<'PY'
+          import russworks
+          import russworks.run
+          import russworks.postmortem.run
+          import russworks.pipeline
+          import russworks.automation
+          PY
+
+      - name: CLI smoke tests
+        run: |
+          python -m russworks.run --help
+          python -m russworks.postmortem.run --help
+
+      - name: Unit tests
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import inspect
+          from pathlib import Path
+
+          failures = []
+          total = 0
+          for path in sorted(Path("tests").glob("test_*.py")):
+              spec = importlib.util.spec_from_file_location(path.stem, path)
+              module = importlib.util.module_from_spec(spec)
+              assert spec.loader is not None
+              spec.loader.exec_module(module)
+              for name, func in sorted(vars(module).items()):
+                  if name.startswith("test_") and callable(func):
+                      if inspect.signature(func).parameters:
+                          continue
+                      total += 1
+                      try:
+                          func()
+                      except Exception as exc:
+                          failures.append(f"{path}:{name}: {exc!r}")
+
+          if failures:
+              print("\n".join(failures))
+              raise SystemExit(1)
+
+          print(f"Ran {total} tests.")
+          PY

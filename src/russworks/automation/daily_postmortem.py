@@ -9,10 +9,13 @@ from typing import Any, Mapping
 from russworks.calibration import FormulaCalibrationEngine
 from russworks.dashboard import CalibrationDashboardEngine
 from russworks.models import RussTier
+from russworks.optimizer import FormulaOptimizer
 from russworks.postmortem import CSVHomeRunDataProvider, PostMortemEngine, normalize_actual_home_run_entry
 from russworks.recommendations import WeightRecommendationEngine
+from russworks.reports import load_full_report_json
 from russworks.review import BatterReview, BatterReviewResult
 from russworks.slips import Slip, SlipLeg, SlipPortfolio
+from russworks.trends import TrendEngine
 
 from .models import DailyPostMortemRun, PostMortemRunResult
 
@@ -52,7 +55,7 @@ class AutoPostMortemRunner:
 
         try:
             actual_entries = _load_actual_home_runs(actual_path, request.date)
-            report_payload = _load_json(report_path)
+            report_payload = load_full_report_json(report_path)
             portfolio = _portfolio_from_report(report_payload)
             step3_result = _step3_from_report(report_payload)
             postmortem_report = PostMortemEngine().compare_to_step5_portfolio(portfolio, actual_entries)
@@ -69,43 +72,73 @@ class AutoPostMortemRunner:
                 calibration_result=calibration_result,
                 dashboard=dashboard,
             )
+            trends = TrendEngine().build_trends(
+                dashboard=dashboard,
+                calibration_result=calibration_result,
+                recommendation_report=recommendations,
+            )
+            optimizer = FormulaOptimizer().optimize(
+                calibration_result=calibration_result,
+                dashboard=dashboard,
+                recommendation_report=recommendations,
+                trend_summary=trends,
+            )
         except Exception as exc:
             return PostMortemRunResult(run=request, success=False, errors=[str(exc)])
 
         date_dir.mkdir(parents=True, exist_ok=True)
         dashboard_dir = Path(request.dashboard_output_dir)
         recommendations_dir = Path(request.recommendations_output_dir)
+        trends_dir = Path(request.trends_output_dir)
+        optimizer_dir = Path(request.optimizer_output_dir)
         dashboard_dir.mkdir(parents=True, exist_ok=True)
         recommendations_dir.mkdir(parents=True, exist_ok=True)
+        trends_dir.mkdir(parents=True, exist_ok=True)
+        optimizer_dir.mkdir(parents=True, exist_ok=True)
 
         postmortem_path = date_dir / "postmortem_report.json"
         calibration_path = date_dir / "calibration_result.json"
         dashboard_path = CalibrationDashboardEngine().export_json(dashboard, dashboard_dir)
         recommendations_path = WeightRecommendationEngine().export_json(recommendations, recommendations_dir)
+        trends_path = TrendEngine().export_json(trends, trends_dir)
+        optimizer_path = FormulaOptimizer().export_json(optimizer, optimizer_dir)
 
         _write_json(postmortem_path, postmortem_report)
         calibration_path.write_text(calibration_result.to_json(), encoding="utf-8")
 
         result = PostMortemRunResult(
             run=request,
-            success=postmortem_report.success and calibration_result.success and dashboard.success and recommendations.success,
+            success=(
+                postmortem_report.success
+                and calibration_result.success
+                and dashboard.success
+                and recommendations.success
+                and trends.success
+                and optimizer.success
+            ),
             skipped=False,
             actual_home_runs_loaded=len(actual_entries),
             postmortem_report_path=str(postmortem_path),
             calibration_report_path=str(calibration_path),
             dashboard_path=str(dashboard_path),
             recommendations_path=str(recommendations_path),
+            trends_path=str(trends_path),
+            optimizer_path=str(optimizer_path),
             metadata_path=str(metadata_path),
             postmortem_report=postmortem_report,
             calibration_result=calibration_result,
             dashboard=dashboard,
             recommendations=recommendations,
+            trends=trends,
+            optimizer=optimizer,
             messages=[f"Auto post-mortem completed for {request.date}."],
             errors=[
                 *postmortem_report.errors,
                 *calibration_result.errors,
                 *dashboard.errors,
                 *recommendations.errors,
+                *trends.errors,
+                *optimizer.errors,
             ],
         )
         _write_metadata(metadata_path, result, actual_path, report_path)
@@ -272,6 +305,8 @@ def _write_metadata(metadata_path: Path, result: PostMortemRunResult, actual_pat
         "calibration_report_path": result.calibration_report_path,
         "dashboard_path": result.dashboard_path,
         "recommendations_path": result.recommendations_path,
+        "trends_path": result.trends_path,
+        "optimizer_path": result.optimizer_path,
         "messages": list(result.messages),
         "errors": list(result.errors),
     }

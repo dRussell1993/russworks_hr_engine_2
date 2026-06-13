@@ -22,10 +22,14 @@ class ReviewQueue:
 def build_review_queue(game: GameIntake, missing_data: Dict[str, List[str]] | None = None) -> ReviewQueue:
     missing = missing_data or {}
     review_required = [batter for team in game.teams for batter in team.batters if batter.requires_review]
-    validated_batters = sum(1 for batter in review_required if batter.confirmed and batter.lineup_slot is not None)
+    validated_batters = sum(1 for batter in review_required if batter.confirmed and _valid_lineup_slot(batter.lineup_slot))
     return ReviewQueue(
         total_batters=len(review_required),
         validated_batters=validated_batters,
         missing_data=missing,
         review_required=review_required,
     )
+
+
+def _valid_lineup_slot(value: int | None) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 9

@@ -23,6 +23,8 @@ def test_auto_postmortem_skips_safely_when_actual_hr_file_is_missing():
             postmortem_output_dir=str(root / "postmortem"),
             dashboard_output_dir=str(root / "dashboard"),
             recommendations_output_dir=str(root / "recommendations"),
+            trends_output_dir=str(root / "trends"),
+            optimizer_output_dir=str(root / "optimizer"),
         )
 
         result = AutoPostMortemRunner().run_postmortem(DATE, request)
@@ -44,6 +46,8 @@ def test_auto_postmortem_exports_reports_and_detects_duplicate_processing():
             postmortem_output_dir=str(root / "postmortem"),
             dashboard_output_dir=str(root / "dashboard"),
             recommendations_output_dir=str(root / "recommendations"),
+            trends_output_dir=str(root / "trends"),
+            optimizer_output_dir=str(root / "optimizer"),
         )
 
         result = run_postmortem(DATE, request)
@@ -55,7 +59,11 @@ def test_auto_postmortem_exports_reports_and_detects_duplicate_processing():
         assert Path(result.calibration_report_path).exists()
         assert Path(result.dashboard_path).name == "dashboard.json"
         assert Path(result.recommendations_path).name == "recommendations.json"
+        assert Path(result.trends_path).name == "trends.json"
+        assert Path(result.optimizer_path).name == "optimizer_report.json"
         assert Path(result.metadata_path).exists()
+        assert result.trends is not None
+        assert result.optimizer is not None
 
         postmortem_payload = json.loads(Path(result.postmortem_report_path).read_text(encoding="utf-8"))
         assert len(postmortem_payload["actual_home_runs"]) == 2
@@ -81,6 +89,8 @@ def test_auto_postmortem_force_preserves_historical_date_folder_and_reruns():
             postmortem_output_dir=str(root / "postmortem"),
             dashboard_output_dir=str(root / "dashboard"),
             recommendations_output_dir=str(root / "recommendations"),
+            trends_output_dir=str(root / "trends"),
+            optimizer_output_dir=str(root / "optimizer"),
         )
         first = AutoPostMortemRunner().run_postmortem(DATE, request)
         forced = AutoPostMortemRunner().run_postmortem(DATE, DailyPostMortemRun(**{**request.__dict__, "force": True}))
@@ -97,6 +107,8 @@ def test_cli_runs_auto_postmortem_when_no_csv_is_supplied():
         postmortem_root = root / "postmortem"
         dashboard_root = root / "dashboard"
         recommendations_root = root / "recommendations"
+        trends_root = root / "trends"
+        optimizer_root = root / "optimizer"
         actual_path = postmortem_root / f"actual_home_runs_{DATE}.csv"
         report_path = root / "outputs" / DATE / "russworks_full_report.json"
         _write_actual_hr_file(actual_path)
@@ -114,6 +126,10 @@ def test_cli_runs_auto_postmortem_when_no_csv_is_supplied():
                 str(dashboard_root),
                 "--recommendations-dir",
                 str(recommendations_root),
+                "--trends-dir",
+                str(trends_root),
+                "--optimizer-dir",
+                str(optimizer_root),
             ]
         )
 
@@ -121,6 +137,8 @@ def test_cli_runs_auto_postmortem_when_no_csv_is_supplied():
         assert (postmortem_root / DATE / "postmortem_report.json").exists()
         assert (dashboard_root / "dashboard.json").exists()
         assert (recommendations_root / "recommendations.json").exists()
+        assert (trends_root / "trends.json").exists()
+        assert (optimizer_root / "optimizer_report.json").exists()
 
 
 def _write_actual_hr_file(path: Path) -> None:
@@ -140,6 +158,7 @@ def _write_actual_hr_file(path: Path) -> None:
 def _write_report_file(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "schema_version": "1.0",
         "context": {
             "report_date": DATE,
             "games_reviewed": 1,
