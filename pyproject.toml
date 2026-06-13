@@ -1,6 +1,6 @@
 [project]
 name = "russworks-hr-engine"
-version = "0.1.0"
+version = "1.0.0"
 description = "Russ-Works MLB HR scoring and report engine"
 requires-python = ">=3.10"
 dependencies = []
