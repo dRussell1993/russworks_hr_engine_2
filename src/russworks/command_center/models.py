@@ -32,6 +32,7 @@ class FormulaHealthReport:
     diversification_summary: dict[str, Any] = field(default_factory=dict)
     simulation_summary: dict[str, Any] = field(default_factory=dict)
     self_learning_summary: dict[str, Any] = field(default_factory=dict)
+    scheduler_summary: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

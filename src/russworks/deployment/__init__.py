@@ -27,6 +27,12 @@ def validate_runtime_config(*args, **kwargs):
 
     return _validate_runtime_config(*args, **kwargs)
 
+
+def run_scheduler_from_env(*args, **kwargs):
+    from russworks.deployment.runtime import run_scheduler_from_env as _run_scheduler_from_env
+
+    return _run_scheduler_from_env(*args, **kwargs)
+
 __all__ = [
     "DeploymentConfig",
     "DeploymentValidationResult",
@@ -36,5 +42,6 @@ __all__ = [
     "ScheduleConfig",
     "config_from_env",
     "run_daily_from_env",
+    "run_scheduler_from_env",
     "validate_runtime_config",
 ]
