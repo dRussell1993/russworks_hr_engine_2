@@ -5,6 +5,7 @@ import json
 import sys
 
 from russworks.pipeline import DailyRunRequest, RussWorksPipeline
+from russworks.slate import build_live_slate
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -14,7 +15,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-root", default="data/outputs", help="Root folder for daily output folders.")
     parser.add_argument("--provider-mode", default="csv", choices=["csv", "live"], help="Daily slate source mode.")
     parser.add_argument("--config-path", default="config/russworks_config.yaml", help="Russ-Works user config YAML path.")
+    parser.add_argument("--build-slate", action="store_true", help="Build data/daily/YYYY-MM-DD CSV slate files from live providers before running.")
     args = parser.parse_args(argv)
+
+    if args.build_slate:
+        build_result = build_live_slate(args.date, data_root=args.data_root)
+        if not build_result.success:
+            print(build_result.to_json())
+            return 1
 
     request = DailyRunRequest(
         date=args.date,

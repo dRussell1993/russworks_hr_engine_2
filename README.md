@@ -31,6 +31,20 @@ python -m russworks.validate
 The self-test verifies package imports, user configuration loading, scheduler
 loading, provider registration, and schema-versioned report generation.
 
+## Live Slate Builder
+
+Phase 40 adds a provider-driven slate builder that writes daily CSV inputs before
+the normal pipeline runs:
+
+```bash
+python -m russworks.build_slate --date YYYY-MM-DD
+python -m russworks.run --date YYYY-MM-DD --build-slate
+```
+
+The builder exports `watchlist.csv`, `lineups.csv`, `pitchers.csv`,
+`weather.csv`, `umpires.csv`, `park_factors.csv`, `weak_spots.csv`, and
+`hr_matchups.csv` under `data/daily/YYYY-MM-DD/`.
+
 ## Input CSVs
 
 See `/templates` for CSV templates.
