@@ -176,7 +176,7 @@ class Step3ReviewEngine:
             weak_spot_certainty=weak_spot_confidence,
             bullpen_certainty=bullpen_confidence,
             historical_consistency=_historical_consistency(ypi_confidence, veteran_confidence, catcher_confidence),
-            context={"lineup_slot": batter.lineup_slot, "team": batter.team},
+            context=_confidence_context(batter, game),
         )
         return BatterReview(
             batter_name=batter.name,
@@ -769,7 +769,21 @@ def _environment_certainty(game: GameIntake) -> float:
         environment.park_hr_factor > 0.0,
         game.umpire is not None or environment.umpire is not None,
     ]
-    return round(sum(1 for check in checks if check) / len(checks) * 100.0, 1)
+    score = round(sum(1 for check in checks if check) / len(checks) * 100.0, 1)
+    if _uses_neutral_park_factor_fallback(game):
+        score = min(score, 65.0)
+    return score
+
+
+def _confidence_context(batter: BatterIntake, game: GameIntake) -> dict[str, object]:
+    context: dict[str, object] = {"lineup_slot": batter.lineup_slot, "team": batter.team}
+    if _uses_neutral_park_factor_fallback(game):
+        context["reason"] = "Neutral park factor fallback used; environment confidence reduced."
+    return context
+
+
+def _uses_neutral_park_factor_fallback(game: GameIntake) -> bool:
+    return game.environment is not None and game.environment.park_hr_factor <= 0.0
 
 
 def _historical_consistency(*confidences: float) -> float:

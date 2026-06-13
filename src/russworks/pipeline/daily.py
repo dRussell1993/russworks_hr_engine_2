@@ -34,7 +34,7 @@ from .models import CompleteGame, IncompleteGame, SkippedGame
 
 
 SlateLoader = Callable[[str, DailyRunRequest], DailySlate]
-_SKIPPABLE_MISSING_CATEGORIES = {"weak_spot", "hr_matchup", "park_factor", "umpire"}
+_SKIPPABLE_MISSING_CATEGORIES = {"weak_spot", "hr_matchup", "umpire"}
 
 
 @dataclass(frozen=True)
@@ -47,6 +47,7 @@ class _GameValidationPlan:
     validation_summary: dict[str, object]
     warnings: list[str]
     validation_status: str
+    park_factor_fallback_games: list[str]
 
 
 class RussWorksPipeline:
@@ -419,10 +420,13 @@ def _build_game_validation_plan(slate: DailySlate) -> _GameValidationPlan:
     skipped_games: list[SkippedGame] = []
     process_games = []
     all_missing: dict[str, list[str]] = {}
+    park_factor_fallback_games: list[str] = []
 
     for game in slate.games:
         queue = validate_step2_intake(game)
         missing = _with_required_optional_game_inputs(dict(queue.missing_data), game)
+        if _uses_neutral_park_factor_fallback(game):
+            park_factor_fallback_games.append(game.game_id)
         if not missing:
             complete_games.append(_complete_game(game))
             process_games.append(game)
@@ -447,12 +451,22 @@ def _build_game_validation_plan(slate: DailySlate) -> _GameValidationPlan:
         metadata={
             **slate.metadata,
             "validation_status": validation_status,
-            "validation_summary": json.dumps(_validation_summary(slate, complete_games, incomplete_games, skipped_games), sort_keys=True),
+            "validation_summary": json.dumps(
+                _validation_summary(
+                    slate,
+                    complete_games,
+                    incomplete_games,
+                    skipped_games,
+                    park_factor_fallback_games,
+                ),
+                sort_keys=True,
+            ),
+            "park_factor_fallback_games": json.dumps(park_factor_fallback_games),
         },
     )
     missing_data = all_missing if not complete_games else _non_skipped_missing_data(incomplete_games)
     missing_data = _with_unmatched_game_ids(missing_data, slate)
-    summary = _validation_summary(slate, complete_games, incomplete_games, skipped_games)
+    summary = _validation_summary(slate, complete_games, incomplete_games, skipped_games, park_factor_fallback_games)
     return _GameValidationPlan(
         process_slate=process_slate,
         complete_games=complete_games,
@@ -460,19 +474,22 @@ def _build_game_validation_plan(slate: DailySlate) -> _GameValidationPlan:
         skipped_games=skipped_games,
         missing_data=missing_data,
         validation_summary=summary,
-        warnings=_skipped_game_warnings(skipped_games, incomplete_games),
+        warnings=_validation_warnings(skipped_games, incomplete_games, park_factor_fallback_games),
         validation_status=validation_status,
+        park_factor_fallback_games=park_factor_fallback_games,
     )
 
 
 def _with_required_optional_game_inputs(missing: dict[str, list[str]], game) -> dict[str, list[str]]:
     updated = {category: list(values) for category, values in missing.items()}
-    environment = game.environment
-    if environment is None or getattr(environment, "park_hr_factor", 0.0) <= 0.0:
-        updated.setdefault("park_factor", [])
-        if "park factor data" not in updated["park_factor"]:
-            updated["park_factor"].append("park factor data")
     return {category: values for category, values in updated.items() if values}
+
+
+def _uses_neutral_park_factor_fallback(game) -> bool:
+    environment = game.environment
+    if environment is None:
+        return False
+    return getattr(environment, "park_hr_factor", 0.0) <= 0.0
 
 
 def _complete_game(game) -> CompleteGame:
@@ -517,19 +534,28 @@ def _validation_summary(
     complete_games: Sequence[CompleteGame],
     incomplete_games: Sequence[IncompleteGame],
     skipped_games: Sequence[SkippedGame],
+    park_factor_fallback_games: Sequence[str] = (),
 ) -> dict[str, object]:
     return {
         "total_games": slate.total_games,
         "complete_games": len(complete_games),
         "incomplete_games": len(incomplete_games),
         "skipped_games": len(skipped_games),
+        "park_factor_fallback_games": len(park_factor_fallback_games),
         "processed_game_ids": [game.game_id for game in complete_games],
         "skipped_game_ids": [game.game_id for game in skipped_games],
+        "park_factor_fallback_game_ids": list(park_factor_fallback_games),
     }
 
 
-def _skipped_game_warnings(skipped_games: Sequence[SkippedGame], incomplete_games: Sequence[IncompleteGame]) -> list[str]:
+def _validation_warnings(
+    skipped_games: Sequence[SkippedGame],
+    incomplete_games: Sequence[IncompleteGame],
+    park_factor_fallback_games: Sequence[str],
+) -> list[str]:
     warnings = []
+    for game_id in park_factor_fallback_games:
+        warnings.append(f"{game_id}: Neutral park factor fallback used")
     for game in skipped_games:
         warnings.append(f"Skipped {game.game_id}: {'; '.join(game.skipped_reason)}")
     for game in incomplete_games:
@@ -625,6 +651,7 @@ def _context_with_validation_plan(context, validation_plan: _GameValidationPlan)
             f"complete_games={len(validation_plan.complete_games)}",
             f"skipped_games={len(validation_plan.skipped_games)}",
             f"incomplete_games={len(validation_plan.incomplete_games)}",
+            f"park_factor_fallback_games={len(validation_plan.park_factor_fallback_games)}",
         ],
         active_config=dict(context.active_config),
     )

@@ -440,7 +440,7 @@ def _validation_summaries(summary: dict[str, object] | None) -> list[str]:
         "Slate validation: "
         + ", ".join(
             f"{key}={summary.get(key)}"
-            for key in ("total_games", "complete_games", "incomplete_games", "skipped_games")
+            for key in ("total_games", "complete_games", "incomplete_games", "skipped_games", "park_factor_fallback_games")
             if key in summary
         )
         + "."
