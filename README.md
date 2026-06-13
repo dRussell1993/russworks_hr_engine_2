@@ -45,6 +45,12 @@ The builder exports `watchlist.csv`, `lineups.csv`, `pitchers.csv`,
 `weather.csv`, `umpires.csv`, `park_factors.csv`, `weak_spots.csv`, and
 `hr_matchups.csv` under `data/daily/YYYY-MM-DD/`.
 
+Successful daily runs also export operator runtime files:
+
+- `data/dashboard/dashboard.json`
+- `data/command_center/command_center.json`
+- `data/web/dashboard_data.json`
+
 ## Input CSVs
 
 See `/templates` for CSV templates.

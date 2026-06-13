@@ -141,3 +141,6 @@ def test_build_slate_flag_builds_csvs_before_daily_pipeline_run():
         assert exit_code == 0
         assert (data_root / "2026-06-13" / "lineups.csv").exists()
         assert (output_root / "2026-06-13" / "russworks_full_report.json").exists()
+        assert (output_root.parent / "dashboard" / "dashboard.json").exists()
+        assert (output_root.parent / "command_center" / "command_center.json").exists()
+        assert (output_root.parent / "web" / "dashboard_data.json").exists()

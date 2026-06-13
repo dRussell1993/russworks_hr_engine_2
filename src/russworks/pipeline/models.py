@@ -41,6 +41,9 @@ class DailyRunResult:
     diversification_report_path: str = ""
     simulation_report_path: str = ""
     self_learning_report_path: str = ""
+    dashboard_path: str = ""
+    command_center_path: str = ""
+    web_dashboard_path: str = ""
     slate: DailySlate | None = None
     integrity_report: IntegrityReport | None = None
     portfolio_report: PortfolioProfile | None = None
