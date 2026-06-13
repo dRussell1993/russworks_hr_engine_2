@@ -51,6 +51,40 @@ Successful daily runs also export operator runtime files:
 - `data/command_center/command_center.json`
 - `data/web/dashboard_data.json`
 
+## Local Web Dashboard
+
+Phase 44 adds a Streamlit operator dashboard for local review of generated
+Russ-Works outputs.
+
+First run the daily pipeline so the JSON and markdown outputs exist:
+
+```bash
+python -m russworks.run --date YYYY-MM-DD
+```
+
+Then launch the local dashboard:
+
+```bash
+python -m russworks.ui.app
+```
+
+The dashboard reads:
+
+- `data/web/dashboard_data.json`
+- `data/outputs/YYYY-MM-DD/russworks_operator_report.md`
+- `data/command_center/command_center.json`
+- `data/dashboard/dashboard.json`
+
+Dashboard pages:
+
+- Overview
+- Top HR Targets
+- Team Clusters
+- Step 5 Slips
+- Confidence / Risk
+- Validation Warnings
+- Command Center
+
 ## Input CSVs
 
 See `/templates` for CSV templates.
