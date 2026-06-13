@@ -13,6 +13,7 @@ from russworks.data.providers import (
     load_daily_slate,
     load_game_data,
     load_watchlist,
+    normalize_game_id,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "load_daily_slate",
     "load_game_data",
     "load_watchlist",
+    "normalize_game_id",
 ]

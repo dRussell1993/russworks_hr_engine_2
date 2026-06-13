@@ -35,6 +35,7 @@ class PitcherWeakSpot:
     zone: Optional[str] = None
     weakness_score: float = 0.0
     notes: str = ""
+    original_game_id: str = ""
 
 
 @dataclass
@@ -47,3 +48,4 @@ class HRMatchup:
     angle: Optional[float] = None
     distance: Optional[float] = None
     notes: str = ""
+    original_game_id: str = ""

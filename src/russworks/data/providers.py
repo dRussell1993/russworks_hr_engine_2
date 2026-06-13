@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +15,7 @@ from russworks.reports import ReportContext
 
 
 Record = dict[str, Any]
+_TEAM_CODE = re.compile(r"^[a-z]{2,3}$")
 
 
 @dataclass(frozen=True)
@@ -123,7 +125,7 @@ class LineupProvider:
     def load_lineups(self) -> dict[str, dict[str, list[BatterIntake]]]:
         lineups: dict[str, dict[str, list[BatterIntake]]] = {}
         for row in self.data_provider.load_records("lineups"):
-            game_id = str(_value(row, "game_id", "game", default="")).strip()
+            game_id, _ = _game_id_from_record(row)
             team = str(_value(row, "team", default="")).strip()
             if not game_id or not team:
                 continue
@@ -138,7 +140,7 @@ class PitcherProvider:
     def load_pitchers(self) -> dict[str, dict[str, PitcherIntake]]:
         pitchers: dict[str, dict[str, PitcherIntake]] = {}
         for row in self.data_provider.load_records("pitchers"):
-            game_id = str(_value(row, "game_id", "game", default="")).strip()
+            game_id, _ = _game_id_from_record(row)
             team = str(_value(row, "team", default="")).strip()
             if not game_id or not team:
                 continue
@@ -167,7 +169,7 @@ class EnvironmentProvider:
         park_factors = self.load_park_factors()
         environments: dict[str, GameEnvironment] = {}
         for row in self.data_provider.load_records("weather"):
-            game_id = str(_value(row, "game_id", "game", default="")).strip()
+            game_id, original_game_id = _game_id_from_record(row)
             if not game_id:
                 continue
             park = str(_value(row, "park", "park_name", default="")).strip()
@@ -187,13 +189,14 @@ class EnvironmentProvider:
                 weather_distance_ft=_float(_value(row, "weather_distance_ft", "weather_distance", default=0.0)),
                 park_hr_factor=park_factor,
                 umpire=umpires.get(game_id),
+                original_game_id=original_game_id,
             )
         return environments
 
     def load_umpires(self) -> dict[str, Umpire]:
         umpires: dict[str, Umpire] = {}
         for row in self.data_provider.load_records("umpires"):
-            game_id = str(_value(row, "game_id", "game", default="")).strip()
+            game_id, _ = _game_id_from_record(row)
             if not game_id:
                 continue
             umpires[game_id] = Umpire(
@@ -209,7 +212,7 @@ class EnvironmentProvider:
     def load_park_factors(self) -> dict[str, float]:
         factors: dict[str, float] = {}
         for row in self.data_provider.load_records("park_factors"):
-            game_id = str(_value(row, "game_id", "game", default="")).strip()
+            game_id, _ = _game_id_from_record(row)
             if game_id:
                 factors[game_id] = _float(_value(row, "park_hr_factor", "hr_park_factor", default=0.0))
         return factors
@@ -223,9 +226,22 @@ class MLBDataConnector(WatchlistProvider, LineupProvider, PitcherProvider, Envir
         lineups = self.load_lineups()
         pitchers = self.load_pitchers()
         environments = self.load_environments()
-        weak_spots = _weak_spots_by_game(self.data_provider.load_records("weak_spots"))
-        hr_matchups = _hr_matchups_by_game(self.data_provider.load_records("hr_matchups"))
+        weak_spot_rows = self.data_provider.load_records("weak_spots")
+        hr_matchup_rows = self.data_provider.load_records("hr_matchups")
+        weak_spots = _weak_spots_by_game(weak_spot_rows)
+        hr_matchups = _hr_matchups_by_game(hr_matchup_rows)
         game_ids = sorted(set(lineups) | set(pitchers) | set(environments))
+        original_game_ids = _original_game_ids_by_normalized(
+            [
+                *self.data_provider.load_records("lineups"),
+                *self.data_provider.load_records("pitchers"),
+                *self.data_provider.load_records("weather"),
+                *self.data_provider.load_records("umpires"),
+                *self.data_provider.load_records("park_factors"),
+                *weak_spot_rows,
+                *hr_matchup_rows,
+            ]
+        )
         games: list[GameIntake] = []
         for game_id in game_ids:
             environment = environments.get(game_id)
@@ -248,6 +264,7 @@ class MLBDataConnector(WatchlistProvider, LineupProvider, PitcherProvider, Envir
                     umpire=environment.umpire if environment else self.load_umpires().get(game_id),
                     weak_spots=weak_spots.get(game_id, []),
                     hr_matchups=hr_matchups.get(game_id, []),
+                    original_game_id=_preferred_original_game_id(game_id, original_game_ids),
                 )
             )
         return games
@@ -256,12 +273,38 @@ class MLBDataConnector(WatchlistProvider, LineupProvider, PitcherProvider, Envir
         games = self.load_game_data()
         watchlist = self.load_watchlist()
         inferred_date = slate_date or next((game.date for game in games if game.date), "")
+        unmatched_game_ids = self._unmatched_game_ids(games)
         return DailySlate(
             date=inferred_date,
             games=games,
             watchlist=WatchlistImport(games=games, batters=watchlist.batters, metadata=watchlist.metadata),
-            metadata={"source": self.data_provider.__class__.__name__},
+            metadata={
+                "source": self.data_provider.__class__.__name__,
+                "unmatched_game_ids": json.dumps(unmatched_game_ids, sort_keys=True),
+            },
         )
+
+    def _unmatched_game_ids(self, games: Sequence[GameIntake]) -> dict[str, list[str]]:
+        loaded_game_ids = {game.game_id for game in games}
+        unmatched: dict[str, list[str]] = {}
+        for dataset in [
+            "watchlist",
+            "lineups",
+            "pitchers",
+            "weather",
+            "umpires",
+            "park_factors",
+            "weak_spots",
+            "hr_matchups",
+        ]:
+            originals: list[str] = []
+            for row in self.data_provider.load_records(dataset):
+                normalized, original = _game_id_from_record(row)
+                if normalized and normalized not in loaded_game_ids and original not in originals:
+                    originals.append(original)
+            if originals:
+                unmatched[dataset] = originals
+        return unmatched
 
 
 def load_watchlist(provider: DataProvider | WatchlistProvider) -> WatchlistImport:
@@ -308,6 +351,59 @@ def _plural(dataset: str) -> str:
     if dataset.endswith("s"):
         return dataset
     return f"{dataset}s"
+
+
+def normalize_game_id(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    compact = raw.lower().replace("_", "-").replace(" ", "")
+    if "@" in compact:
+        away, home = compact.split("@", 1)
+        if _is_team_code(away) and _is_team_code(home):
+            return f"{away}-{home}-1"
+    parts = [part for part in compact.split("-") if part]
+    if len(parts) >= 5 and parts[-3].isdigit() and parts[-2].isdigit() and parts[-1].isdigit():
+        prefix = parts[:-3]
+        if len(prefix) == 3 and prefix[1] == "at" and _is_team_code(prefix[0]) and _is_team_code(prefix[2]):
+            return f"{prefix[0]}-{prefix[2]}-1"
+        if len(prefix) == 2 and _is_team_code(prefix[0]) and _is_team_code(prefix[1]):
+            return f"{prefix[0]}-{prefix[1]}-1"
+    if len(parts) == 3 and parts[1] == "at" and _is_team_code(parts[0]) and _is_team_code(parts[2]):
+        return f"{parts[0]}-{parts[2]}-1"
+    if len(parts) == 3 and _is_team_code(parts[0]) and _is_team_code(parts[1]) and parts[2].isdigit():
+        return f"{parts[0]}-{parts[1]}-{int(parts[2])}"
+    if len(parts) == 2 and _is_team_code(parts[0]) and _is_team_code(parts[1]):
+        return f"{parts[0]}-{parts[1]}-1"
+    if len(parts) == 1:
+        return parts[0]
+    return compact
+
+
+def _game_id_from_record(row: Mapping[str, Any]) -> tuple[str, str]:
+    original = str(_value(row, "game_id", "game", default="")).strip()
+    return normalize_game_id(original), original
+
+
+def _is_team_code(value: str) -> bool:
+    return bool(_TEAM_CODE.match(value))
+
+
+def _original_game_ids_by_normalized(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[str]]:
+    originals: dict[str, list[str]] = {}
+    for row in rows:
+        normalized, original = _game_id_from_record(row)
+        if normalized and original and original not in originals.setdefault(normalized, []):
+            originals[normalized].append(original)
+    return originals
+
+
+def _preferred_original_game_id(game_id: str, originals: Mapping[str, Sequence[str]]) -> str:
+    values = originals.get(game_id, [])
+    for value in values:
+        if value and value != game_id:
+            return value
+    return values[0] if values else game_id
 
 
 def _value(row: Mapping[str, Any], *names: str, default: Any = "") -> Any:
@@ -388,7 +484,7 @@ def _batter_from_record(row: Mapping[str, Any], *, confirmed: bool, source: str 
 def _weak_spots_by_game(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[PitcherWeakSpot]]:
     grouped: dict[str, list[PitcherWeakSpot]] = {}
     for row in rows:
-        game_id = str(_value(row, "game_id", "game", default="")).strip()
+        game_id, original_game_id = _game_id_from_record(row)
         if not game_id:
             continue
         grouped.setdefault(game_id, []).append(
@@ -398,6 +494,7 @@ def _weak_spots_by_game(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[Pit
                 zone=str(_value(row, "zone", default="")).strip() or None,
                 weakness_score=_float(_value(row, "weakness_score", "score", default=0.0)),
                 notes=str(_value(row, "notes", default="")).strip(),
+                original_game_id=original_game_id,
             )
         )
     return grouped
@@ -406,7 +503,7 @@ def _weak_spots_by_game(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[Pit
 def _hr_matchups_by_game(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[HRMatchup]]:
     grouped: dict[str, list[HRMatchup]] = {}
     for row in rows:
-        game_id = str(_value(row, "game_id", "game", default="")).strip()
+        game_id, original_game_id = _game_id_from_record(row)
         if not game_id:
             continue
         grouped.setdefault(game_id, []).append(
@@ -419,6 +516,7 @@ def _hr_matchups_by_game(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[HR
                 angle=_optional_float(_value(row, "angle", "launch_angle", default=None)),
                 distance=_optional_float(_value(row, "distance", default=None)),
                 notes=str(_value(row, "notes", default="")).strip(),
+                original_game_id=original_game_id,
             )
         )
     return grouped
