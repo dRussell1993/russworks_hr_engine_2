@@ -7,6 +7,7 @@ from russworks.cluster import ClusterRanking, generate_cluster_report
 from russworks.configuration import ConfigLoader, RussWorksUserConfig
 from russworks.data import CSVDataProvider, DailySlate, load_daily_slate as load_slate_from_provider
 from russworks.explainability import ExplainabilityEngine
+from russworks.integrity import IntegrityEngine, IntegrityReport
 from russworks.intake import ReviewQueue, validate_step2_intake
 from russworks.reports import FullRussWorksReport, ReportGenerator
 from russworks.review import BatterReviewResult, review_all_batters
@@ -29,33 +30,43 @@ class RussWorksPipeline:
     def __init__(self, *, slate_loader: SlateLoader | None = None) -> None:
         self._slate_loader = slate_loader
         self._report_generator = ReportGenerator()
+        self._integrity_engine = IntegrityEngine()
         self._active_config: RussWorksUserConfig | None = None
+        self._provider_results = []
+        self._provider_health = []
 
     def run_daily_pipeline(self, date: str, request: DailyRunRequest | None = None) -> DailyRunResult:
         run_request = request or DailyRunRequest(date=date)
         try:
             self._active_config = self.load_config(run_request)
             slate = self.load_daily_slate(run_request)
+            integrity_report = self.run_integrity_checks(slate)
             validation_queues = self.validate_slate(slate)
             missing_data = _merge_missing_data(validation_queues)
             if missing_data:
                 errors = _missing_data_errors(missing_data)
+                _, integrity_path = self.save_integrity_report(run_request, integrity_report)
                 return DailyRunResult(
                     request=run_request,
                     success=False,
                     validation_status="invalid",
                     missing_data=missing_data,
                     slate=slate,
+                    integrity_report=integrity_report,
+                    integrity_report_path=str(integrity_path),
                     errors=errors,
                 )
 
             step3 = self.run_step3(slate)
             if not step3.success:
+                _, integrity_path = self.save_integrity_report(run_request, integrity_report)
                 return DailyRunResult(
                     request=run_request,
                     success=False,
                     validation_status="valid",
                     slate=slate,
+                    integrity_report=integrity_report,
+                    integrity_report_path=str(integrity_path),
                     step3_result=step3,
                     total_batters_reviewed=step3.reviewed_batters,
                     errors=list(step3.errors),
@@ -65,6 +76,7 @@ class RussWorksPipeline:
             step5 = self.run_step5(step4)
             report = self.generate_full_report(slate, step3, step4, step5)
             output_dir, report_path = self.save_outputs(run_request, report)
+            _, integrity_path = self.save_integrity_report(run_request, integrity_report)
             errors = [*step4.errors, *step5.errors]
             return DailyRunResult(
                 request=run_request,
@@ -73,7 +85,9 @@ class RussWorksPipeline:
                 total_batters_reviewed=step3.reviewed_batters,
                 output_dir=str(output_dir),
                 report_json_path=str(report_path),
+                integrity_report_path=str(integrity_path),
                 slate=slate,
+                integrity_report=integrity_report,
                 step3_result=step3,
                 step4_result=step4,
                 step5_result=step5,
@@ -102,7 +116,12 @@ class RussWorksPipeline:
                 ],
                 fallback_provider=provider,
             )
-            return slate_provider.load_daily_slate(request.date)
+            slate = slate_provider.load_daily_slate(request.date)
+            self._provider_results = list(slate_provider.results)
+            self._provider_health = list(slate_provider.health_statuses)
+            return slate
+        self._provider_results = []
+        self._provider_health = []
         return load_slate_from_provider(provider, request.date)
 
     def load_config(self, request: DailyRunRequest) -> RussWorksUserConfig:
@@ -110,6 +129,13 @@ class RussWorksPipeline:
 
     def validate_slate(self, slate: DailySlate) -> list[ReviewQueue]:
         return [validate_step2_intake(game) for game in slate.games]
+
+    def run_integrity_checks(self, slate: DailySlate) -> IntegrityReport:
+        return self._integrity_engine.validate_daily_slate(
+            slate,
+            provider_results=self._provider_results,
+            provider_health=self._provider_health,
+        )
 
     def run_step3(self, slate: DailySlate) -> BatterReviewResult:
         results = [review_all_batters(game, user_config=self._active_config) for game in slate.games]
@@ -152,6 +178,10 @@ class RussWorksPipeline:
         if report.explanations:
             ExplainabilityEngine().export_json(report.explanations, Path(request.output_root).parent / "explanations")
         return output_dir, report_path
+
+    def save_integrity_report(self, request: DailyRunRequest, report: IntegrityReport) -> tuple[Path, Path]:
+        integrity_dir = Path(request.output_root).parent / "integrity"
+        return integrity_dir, self._integrity_engine.export_json(report, integrity_dir)
 
 
 def run_daily_pipeline(

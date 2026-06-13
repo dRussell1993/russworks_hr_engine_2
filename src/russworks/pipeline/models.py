@@ -8,6 +8,7 @@ from typing import Any
 
 from russworks.cluster import ClusterRanking
 from russworks.data import DailySlate
+from russworks.integrity import IntegrityReport
 from russworks.reports import FullRussWorksReport
 from russworks.review import BatterReviewResult
 from russworks.slips import SlipPortfolio
@@ -31,7 +32,9 @@ class DailyRunResult:
     total_batters_reviewed: int = 0
     output_dir: str = ""
     report_json_path: str = ""
+    integrity_report_path: str = ""
     slate: DailySlate | None = None
+    integrity_report: IntegrityReport | None = None
     step3_result: BatterReviewResult | None = None
     step4_result: ClusterRanking | None = None
     step5_result: SlipPortfolio | None = None

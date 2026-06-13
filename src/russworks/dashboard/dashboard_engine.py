@@ -7,6 +7,7 @@ from typing import Iterable, Sequence
 
 from russworks.backtesting import BacktestResult, DailyBacktestSummary
 from russworks.calibration import CalibrationMetric, CalibrationResult
+from russworks.integrity import IntegrityReport
 from russworks.postmortem import PostMortemReport
 
 from .dashboard_models import (
@@ -47,6 +48,7 @@ class CalibrationDashboardEngine:
         calibration_result: CalibrationResult | None = None,
         postmortem_reports: Sequence[PostMortemReport] = (),
         backtest_result: BacktestResult | None = None,
+        integrity_report: IntegrityReport | None = None,
     ) -> CalibrationDashboard:
         modules = _module_performances(calibration_result, backtest_result)
         top = sorted(modules, key=lambda item: (item.confidence_accuracy, item.hit_rate, item.wins), reverse=True)[:5]
@@ -55,6 +57,7 @@ class CalibrationDashboardEngine:
         season = _trend_report("Season Trends", backtest_result, limit_days=None)
         archetypes = _archetype_performance(postmortem_reports)
         summaries = _summaries(modules, top, worst, thirty_day, season, archetypes, calibration_result)
+        integrity_summaries = _integrity_summaries(integrity_report)
         errors = []
         if calibration_result and calibration_result.errors:
             errors.extend(calibration_result.errors)
@@ -71,6 +74,7 @@ class CalibrationDashboardEngine:
             season_trends=season,
             archetype_success_rates=archetypes,
             trend_summaries=summaries,
+            integrity_summaries=integrity_summaries,
             errors=errors,
         )
 
@@ -141,11 +145,13 @@ def build_calibration_dashboard(
     *,
     postmortem_reports: Sequence[PostMortemReport] = (),
     backtest_result: BacktestResult | None = None,
+    integrity_report: IntegrityReport | None = None,
 ) -> CalibrationDashboard:
     return CalibrationDashboardEngine().build_dashboard(
         calibration_result=calibration_result,
         postmortem_reports=postmortem_reports,
         backtest_result=backtest_result,
+        integrity_report=integrity_report,
     )
 
 
@@ -313,6 +319,20 @@ def _summaries(
 
 def _display_name(module: str) -> str:
     return _DISPLAY_NAMES.get(module, module)
+
+
+def _integrity_summaries(report: IntegrityReport | None) -> list[str]:
+    if report is None:
+        return []
+    counts = report.severity_counts
+    total = sum(counts.values())
+    if total == 0:
+        return ["Data integrity monitor found no alerts."]
+    return [
+        "Data integrity alerts: "
+        + ", ".join(f"{severity}={count}" for severity, count in counts.items() if count)
+        + "."
+    ]
 
 
 def _rate(numerator: int | float, denominator: int | float) -> float:

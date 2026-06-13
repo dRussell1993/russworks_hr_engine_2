@@ -16,6 +16,7 @@ class DailySlateStatus:
     missing_lineups: list[str] = field(default_factory=list)
     provider_health: list[dict[str, Any]] = field(default_factory=list)
     validation_failures: dict[str, list[str]] = field(default_factory=dict)
+    integrity_alerts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class DailyExecutionSummary:
     step5_status: str
     reports_generated: list[str] = field(default_factory=list)
     exports_generated: list[str] = field(default_factory=list)
+    integrity_report_path: str = ""
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
