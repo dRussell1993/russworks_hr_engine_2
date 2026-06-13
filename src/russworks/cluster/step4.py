@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 from statistics import mean
 from typing import Dict, List, Sequence
 
+from russworks.configuration import RussWorksUserConfig, default_user_config
 from russworks.review import BatterReview, BatterReviewResult
 from russworks.scoring.tag import grade_score
 
@@ -20,6 +22,9 @@ _PARK_FACTOR_GRADE_RANK = {"Elite": 5, "Strong": 4, "Moderate": 3, "Neutral": 2,
 
 
 class Step4ClusterEngine:
+    def __init__(self, user_config: RussWorksUserConfig | None = None) -> None:
+        self.user_config = (user_config or default_user_config()).validate()
+
     def rank_team_clusters(self, step3_results: BatterReviewResult) -> ClusterRanking:
         validation_errors, missing_batters = self._validate_step3_results(step3_results)
         if validation_errors:
@@ -47,7 +52,7 @@ class Step4ClusterEngine:
         return ClusterRanking(
             total_teams=len(reports),
             total_batters=len(step3_results.reviews),
-            ranked_teams=reports,
+            ranked_teams=[self._apply_config_to_report(report) for report in reports],
             errors=[],
             missing_batters=[],
         )
@@ -167,6 +172,23 @@ class Step4ClusterEngine:
             park_factor_grade=park_factor_grade,
         )
 
+    def _apply_config_to_report(self, report: TeamClusterReport) -> TeamClusterReport:
+        toggles = self.user_config.module_toggles
+        changes = {}
+        if not toggles.use_ypi:
+            changes.update({"ypi_bats": [], "ypi_score": 0.0, "ypi_confidence": 0.0, "ypi_grade": "Weak"})
+        if not toggles.use_veteran_bounce:
+            changes.update({"veteran_bounce_bats": [], "veteran_bounce_score": 0.0, "veteran_bounce_confidence": 0.0, "veteran_bounce_grade": "Weak"})
+        if not toggles.use_catcher_power:
+            changes.update({"catcher_power_bats": [], "catcher_power_score": 0.0, "catcher_power_confidence": 0.0, "catcher_power_grade": "Weak"})
+        if not toggles.use_pitch_mix:
+            changes.update({"pitch_mix_matchup_bats": [], "pitch_mix_matchup_score": 0.0, "pitch_mix_matchup_confidence": 0.0, "pitch_mix_matchup_grade": "Weak"})
+        if not toggles.use_bullpen_exposure:
+            changes.update({"bullpen_exposure_bats": [], "bullpen_exposure_score": 0.0, "bullpen_exposure_confidence": 0.0, "bullpen_exposure_grade": "Weak"})
+        if not toggles.use_park_factor:
+            changes.update({"park_factor_bats": [], "park_factor_score": 0.0, "park_factor_confidence": 0.0, "park_factor_grade": "Neutral"})
+        return replace(report, **changes) if changes else report
+
     def generate_cluster_report(self, step3_results: BatterReviewResult) -> ClusterRanking:
         return self.rank_team_clusters(step3_results)
 
@@ -201,16 +223,16 @@ class Step4ClusterEngine:
         return [review.batter_name for review in reviews if review.batter_name not in grouped_names]
 
 
-def rank_team_clusters(step3_results: BatterReviewResult) -> ClusterRanking:
-    return Step4ClusterEngine().rank_team_clusters(step3_results)
+def rank_team_clusters(step3_results: BatterReviewResult, user_config: RussWorksUserConfig | None = None) -> ClusterRanking:
+    return Step4ClusterEngine(user_config=user_config).rank_team_clusters(step3_results)
 
 
 def rank_cluster_batters(team: str, batter_reviews: Sequence[BatterReview]) -> TeamClusterReport:
     return Step4ClusterEngine().rank_cluster_batters(team, batter_reviews)
 
 
-def generate_cluster_report(step3_results: BatterReviewResult) -> ClusterRanking:
-    return Step4ClusterEngine().generate_cluster_report(step3_results)
+def generate_cluster_report(step3_results: BatterReviewResult, user_config: RussWorksUserConfig | None = None) -> ClusterRanking:
+    return Step4ClusterEngine(user_config=user_config).generate_cluster_report(step3_results)
 
 
 def _cluster_score(
