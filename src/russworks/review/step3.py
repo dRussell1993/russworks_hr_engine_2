@@ -6,6 +6,7 @@ from typing import Dict, List
 from russworks.config.weights import ScoringWeights
 from russworks.intake import BatterIntake, GameIntake, ReviewQueue, validate_step2_intake
 from russworks.models import Batter, GameEnvironment, Pitcher, RussTier
+from russworks.scoring.bullpen import BullpenExposureEngine, BullpenProfile, RelieverProfile
 from russworks.scoring.catcher import CatcherPowerEngine, CatcherProfile
 from russworks.scoring.cps import ClusterParticipationInput, ClusterParticipationScore, calculate_cps
 from russworks.scoring.environment import EnvironmentScore, EnvironmentScoreInput, calculate_environment_score
@@ -44,6 +45,7 @@ class Step3ReviewEngine:
         self.veteran_bounce_engine = VeteranBounceEngine()
         self.catcher_power_engine = CatcherPowerEngine()
         self.pitch_mix_engine = PitchMixEngine()
+        self.bullpen_exposure_engine = BullpenExposureEngine()
 
     def review_all_batters(self, game: GameIntake) -> BatterReviewResult:
         queue = validate_step2_intake(game)
@@ -105,6 +107,7 @@ class Step3ReviewEngine:
             _pitch_mix_profile(opponent_pitcher, game),
             _batter_pitch_profile(batter, opponent_pitcher.name, game),
         )
+        bullpen_exposure = self.bullpen_exposure_engine.score_profile(_bullpen_profile(opponent_pitcher, game))
 
         ypi_flag = _has_any_tag(batter, {"ypi", "young", "prospect", "rookie", "small sample", "speed-power"}) or ypi.ypi_grade in {"Elite", "Strong", "Emerging"}
         catcher_power_flag = catcher_power.grade in {"Elite", "Strong", "Moderate"}
@@ -114,6 +117,7 @@ class Step3ReviewEngine:
             pvs.label in {"strong", "elite"} or tag.grade.startswith("A") or cps.grade.startswith("A")
         )
         pitch_mix_matchup_flag = pitch_mix_matchup.grade in {"Elite", "Strong", "Moderate"}
+        bullpen_exposure_flag = bullpen_exposure.grade in {"Elite", "Strong", "Moderate"}
 
         final_score = _final_russ_score(
             batter=batter,
@@ -128,6 +132,7 @@ class Step3ReviewEngine:
             veteran_bounce_flag=veteran_bounce_flag,
             non_superstar_core_flag=non_superstar_core_flag,
             pitch_mix_matchup_flag=pitch_mix_matchup_flag,
+            bullpen_exposure_flag=bullpen_exposure_flag,
         )
         return BatterReview(
             batter_name=batter.name,
@@ -158,6 +163,7 @@ class Step3ReviewEngine:
                 veteran_bounce.grade,
                 catcher_power.grade,
                 pitch_mix_matchup.grade,
+                bullpen_exposure.grade,
             ),
             weak_spot_collision_score=collision.collision_score,
             weak_spot_collision_confidence=collision.collision_confidence,
@@ -174,6 +180,9 @@ class Step3ReviewEngine:
             pitch_mix_matchup_score=pitch_mix_matchup.pitch_mix_matchup_score,
             pitch_mix_matchup_confidence=pitch_mix_matchup.confidence,
             pitch_mix_matchup_grade=pitch_mix_matchup.grade,
+            bullpen_exposure_score=bullpen_exposure.bullpen_exposure_score,
+            bullpen_exposure_confidence=bullpen_exposure.confidence,
+            bullpen_exposure_grade=bullpen_exposure.grade,
         )
 
     def _build_context(self, game: GameIntake, queue: ReviewQueue) -> Step3GameContext:
@@ -393,6 +402,47 @@ def _batter_pitch_profile(batter: BatterIntake, opponent_pitcher_name: str, game
     )
 
 
+def _bullpen_profile(opponent_pitcher: Pitcher, game: GameIntake) -> BullpenProfile:
+    tags = " ".join(opponent_pitcher.tags).lower()
+    weak_spot_count = sum(1 for weak_spot in game.weak_spots if weak_spot.pitcher_name.lower() == opponent_pitcher.name.lower())
+    hr_matchup_count = sum(1 for matchup in game.hr_matchups if matchup.pitcher_name.lower() == opponent_pitcher.name.lower())
+    weak_bullpen = any(key in tags for key in ["weak bullpen", "bad bullpen", "bullpen vulnerable", "relief vulnerable"])
+    overworked = any(key in tags for key in ["overworked bullpen", "tired bullpen", "heavy bullpen", "taxed bullpen"])
+    closer_out = any(key in tags for key in ["closer out", "closer unavailable", "no closer"])
+    hr_prone = any(key in tags for key in ["hr prone bullpen", "relief hr", "bullpen hr"])
+    short_start = opponent_pitcher.projected_ip and opponent_pitcher.projected_ip < 5.0
+
+    bullpen_era = 4.15 + opponent_pitcher.projected_hr * 0.45 + (0.45 if weak_bullpen else 0.0)
+    bullpen_hr_per_9 = 1.05 + opponent_pitcher.projected_hr * 0.12 + (0.25 if hr_prone else 0.0)
+    bullpen_xfip = 4.05 + max(0.0, opponent_pitcher.projected_bb - 1.5) * 0.12 + (0.25 if weak_bullpen else 0.0)
+    strikeout_rate = 22.0 - (2.0 if weak_bullpen else 0.0) - (1.0 if overworked else 0.0)
+    walk_rate = 8.0 + max(0.0, opponent_pitcher.projected_bb - 1.5) * 0.9 + (1.2 if weak_bullpen else 0.0)
+    recent_workload = 2.5 + weak_spot_count * 0.35 + hr_matchup_count * 0.20 + (2.2 if overworked else 0.0) + (1.0 if short_start else 0.0)
+    previous_3_day_workload = 7.5 + weak_spot_count * 0.7 + hr_matchup_count * 0.4 + (4.5 if overworked else 0.0)
+
+    relievers = [
+        RelieverProfile(
+            name=f"{opponent_pitcher.team} High-Leverage Relief",
+            pitch_mix={pitch: usage for pitch, usage in _pitch_mix_profile(opponent_pitcher, game).pitch_usage_percentages.items()},
+            hr_tendencies=bullpen_hr_per_9 + (0.20 if hr_prone else 0.0),
+            handedness=opponent_pitcher.throws.value if hasattr(opponent_pitcher.throws, "value") else str(opponent_pitcher.throws),
+            leverage_role="closer" if not closer_out else "setup",
+        )
+    ]
+    return BullpenProfile(
+        team=opponent_pitcher.team,
+        bullpen_era=bullpen_era,
+        bullpen_hr_per_9=bullpen_hr_per_9,
+        bullpen_xfip=bullpen_xfip,
+        strikeout_rate=strikeout_rate,
+        walk_rate=walk_rate,
+        recent_bullpen_workload=recent_workload,
+        previous_3_day_workload=previous_3_day_workload,
+        closer_available=not closer_out,
+        relievers=relievers,
+    )
+
+
 def _ypi_profile(batter: BatterIntake) -> YPIProfile:
     tags = " ".join(batter.tags).lower()
     is_young = any(key in tags for key in ["ypi", "young", "prospect", "rookie", "small sample", "speed-power"])
@@ -478,6 +528,7 @@ def _final_russ_score(
     veteran_bounce_flag: bool,
     non_superstar_core_flag: bool,
     pitch_mix_matchup_flag: bool,
+    bullpen_exposure_flag: bool,
 ) -> float:
     score = 35.0
     score += batter.hr_pct * 1.15
@@ -492,6 +543,7 @@ def _final_russ_score(
     score += 4.0 if veteran_bounce_flag else 0.0
     score += 3.0 if non_superstar_core_flag else 0.0
     score += 4.0 if pitch_mix_matchup_flag else 0.0
+    score += 4.0 if bullpen_exposure_flag else 0.0
     if _has_any_tag(batter, {"superstar"}) and pvs_score < 5 and lstm_score < 10:
         score -= 3.0
     return round(max(20.0, min(score, 99.0)), 1)
@@ -517,6 +569,7 @@ def _review_notes(
     veteran_bounce_grade: str,
     catcher_power_grade: str,
     pitch_mix_matchup_grade: str,
+    bullpen_exposure_grade: str,
 ) -> List[str]:
     notes = []
     if ypi_flag:
@@ -531,6 +584,8 @@ def _review_notes(
         notes.append("Weak-Spot Collision")
     if pitch_mix_matchup_grade in {"Elite", "Strong", "Moderate"}:
         notes.append(f"Pitch Mix {pitch_mix_matchup_grade}")
+    if bullpen_exposure_grade in {"Elite", "Strong", "Moderate"}:
+        notes.append(f"Bullpen Exposure {bullpen_exposure_grade}")
     return notes
 
 

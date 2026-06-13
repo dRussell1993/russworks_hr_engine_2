@@ -21,6 +21,7 @@ class TeamClusterReport:
     ypi_bats: List[str] = field(default_factory=list)
     veteran_bounce_bats: List[str] = field(default_factory=list)
     pitch_mix_matchup_bats: List[str] = field(default_factory=list)
+    bullpen_exposure_bats: List[str] = field(default_factory=list)
     batter_count: int = 0
     notes: List[str] = field(default_factory=list)
     ypi_score: float = 0.0
@@ -35,6 +36,9 @@ class TeamClusterReport:
     pitch_mix_matchup_score: float = 0.0
     pitch_mix_matchup_confidence: float = 0.0
     pitch_mix_matchup_grade: str = "Weak"
+    bullpen_exposure_score: float = 0.0
+    bullpen_exposure_confidence: float = 0.0
+    bullpen_exposure_grade: str = "Weak"
 
 
 @dataclass(frozen=True)
