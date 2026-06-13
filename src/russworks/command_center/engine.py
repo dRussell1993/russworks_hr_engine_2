@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 from russworks.config.weights import ScoringWeights
 from russworks.dashboard import CalibrationDashboard
@@ -17,6 +17,10 @@ from russworks.recommendations import RecommendationReport
 from russworks.trends import TrendSummary
 
 from .models import CommandCenterReport, DailyExecutionSummary, DailySlateStatus, FormulaHealthReport
+
+
+if TYPE_CHECKING:
+    from russworks.scheduler import SchedulerStatus
 
 
 class CommandCenterEngine:
@@ -34,6 +38,7 @@ class CommandCenterEngine:
         provider_health: Iterable[ProviderHealth | Mapping[str, Any]] = (),
         weights: ScoringWeights | Mapping[str, Any] | None = None,
         explanations_path: str = "",
+        scheduler_status: SchedulerStatus | None = None,
     ) -> CommandCenterReport:
         active_slate = slate or (daily_run_result.slate if daily_run_result else None)
         report_date = date or _date_from_inputs(daily_run_result, active_slate)
@@ -51,6 +56,7 @@ class CommandCenterEngine:
             trends=trends,
             optimizer=optimizer,
             daily_run_result=daily_run_result,
+            scheduler_status=scheduler_status,
         )
         execution_summary = self.execution_summary(
             daily_run_result=daily_run_result,
@@ -60,6 +66,7 @@ class CommandCenterEngine:
             optimizer=optimizer,
             integrity_report=integrity_report,
             explanations_path=explanations_path,
+            scheduler_status=scheduler_status,
         )
         errors = list(execution_summary.errors)
         warnings = list(execution_summary.warnings)
@@ -124,6 +131,7 @@ class CommandCenterEngine:
         trends: TrendSummary | None = None,
         optimizer: OptimizationResult | None = None,
         daily_run_result: DailyRunResult | None = None,
+        scheduler_status: SchedulerStatus | None = None,
     ) -> FormulaHealthReport:
         return FormulaHealthReport(
             current_module_weights=_weights_to_dict(weights),
@@ -137,6 +145,7 @@ class CommandCenterEngine:
             diversification_summary=_diversification_summary(daily_run_result),
             simulation_summary=_simulation_summary(daily_run_result),
             self_learning_summary=_self_learning_summary(daily_run_result),
+            scheduler_summary=_scheduler_summary(scheduler_status),
         )
 
     def execution_summary(
@@ -149,6 +158,7 @@ class CommandCenterEngine:
         optimizer: OptimizationResult | None = None,
         integrity_report: IntegrityReport | None = None,
         explanations_path: str = "",
+        scheduler_status: SchedulerStatus | None = None,
     ) -> DailyExecutionSummary:
         errors = list(daily_run_result.errors if daily_run_result else [])
         warnings: list[str] = []
@@ -170,7 +180,7 @@ class CommandCenterEngine:
             step4_status=_step_status(daily_run_result.step4_result if daily_run_result else None),
             step5_status=_step_status(daily_run_result.step5_result if daily_run_result else None),
             reports_generated=_reports_generated(daily_run_result),
-            exports_generated=_exports_generated(daily_run_result, dashboard, recommendations, trends, optimizer, active_integrity, explanations_path),
+            exports_generated=_exports_generated(daily_run_result, dashboard, recommendations, trends, optimizer, active_integrity, explanations_path, scheduler_status),
             integrity_report_path=_integrity_path(daily_run_result, active_integrity),
             portfolio_report_path=daily_run_result.portfolio_report_path if daily_run_result else "",
             diversification_report_path=daily_run_result.diversification_report_path if daily_run_result else "",
@@ -339,6 +349,7 @@ def _exports_generated(
     optimizer: OptimizationResult | None,
     integrity_report: IntegrityReport | None,
     explanations_path: str = "",
+    scheduler_status: SchedulerStatus | None = None,
 ) -> list[str]:
     exports = []
     if daily_run_result and daily_run_result.report_json_path:
@@ -365,6 +376,8 @@ def _exports_generated(
         exports.append(daily_run_result.self_learning_report_path)
     if explanations_path:
         exports.append(explanations_path)
+    if scheduler_status:
+        exports.append("data/scheduler/scheduler_status.json")
     return exports
 
 
@@ -447,6 +460,20 @@ def _self_learning_summary(daily_run_result: DailyRunResult | None) -> dict[str,
         "recommendation_count": len(report.recommendations),
         "top_performing_modules": list(report.summary.top_performing_modules[:5]),
         "underperforming_modules": list(report.summary.underperforming_modules[:5]),
+    }
+
+
+def _scheduler_summary(status: SchedulerStatus | None) -> dict[str, Any]:
+    if status is None:
+        return {}
+    counts: dict[str, int] = {}
+    for result in status.tasks:
+        counts[result.status.value] = counts.get(result.status.value, 0) + 1
+    return {
+        "success": status.success,
+        "task_count": len(status.tasks),
+        "status_counts": counts,
+        "last_generated_at": status.generated_at,
     }
 
 

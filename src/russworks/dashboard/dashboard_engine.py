@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import TYPE_CHECKING, Iterable, Sequence
 
 from russworks.backtesting import BacktestResult, DailyBacktestSummary
 from russworks.calibration import CalibrationMetric, CalibrationResult
@@ -21,6 +21,10 @@ from .dashboard_models import (
     ModulePerformance,
     TrendReport,
 )
+
+
+if TYPE_CHECKING:
+    from russworks.scheduler import SchedulerStatus
 
 
 _DISPLAY_NAMES = {
@@ -59,6 +63,7 @@ class CalibrationDashboardEngine:
         diversification_result: DiversificationResult | None = None,
         simulation_result: SimulationResult | None = None,
         self_learning_report: SelfLearningReport | None = None,
+        scheduler_status: SchedulerStatus | None = None,
     ) -> CalibrationDashboard:
         modules = _module_performances(calibration_result, backtest_result)
         top = sorted(modules, key=lambda item: (item.confidence_accuracy, item.hit_rate, item.wins), reverse=True)[:5]
@@ -73,6 +78,7 @@ class CalibrationDashboardEngine:
         diversification_summaries = _diversification_summaries(diversification_result)
         simulation_summaries = _simulation_summaries(simulation_result)
         self_learning_summaries = _self_learning_summaries(self_learning_report)
+        scheduler_summaries = _scheduler_summaries(scheduler_status)
         errors = []
         if calibration_result and calibration_result.errors:
             errors.extend(calibration_result.errors)
@@ -95,6 +101,7 @@ class CalibrationDashboardEngine:
             diversification_summaries=diversification_summaries,
             simulation_summaries=simulation_summaries,
             self_learning_summaries=self_learning_summaries,
+            scheduler_summaries=scheduler_summaries,
             errors=errors,
         )
 
@@ -171,6 +178,7 @@ def build_calibration_dashboard(
     diversification_result: DiversificationResult | None = None,
     simulation_result: SimulationResult | None = None,
     self_learning_report: SelfLearningReport | None = None,
+    scheduler_status: SchedulerStatus | None = None,
 ) -> CalibrationDashboard:
     return CalibrationDashboardEngine().build_dashboard(
         calibration_result=calibration_result,
@@ -182,6 +190,7 @@ def build_calibration_dashboard(
         diversification_result=diversification_result,
         simulation_result=simulation_result,
         self_learning_report=self_learning_report,
+        scheduler_status=scheduler_status,
     )
 
 
@@ -400,6 +409,17 @@ def _self_learning_summaries(report: SelfLearningReport | None) -> list[str]:
         f"Self-learning observations: {len(report.observations)}.",
         f"Self-learning recommendations: {len(report.recommendations)}.",
         f"Top self-learning modules: {', '.join(report.summary.top_performing_modules[:3]) if report.summary.top_performing_modules else 'none'}.",
+    ]
+
+
+def _scheduler_summaries(status: SchedulerStatus | None) -> list[str]:
+    if status is None:
+        return []
+    failed = len([task for task in status.tasks if task.status.value == "failed"])
+    return [
+        f"Scheduler tasks tracked: {len(status.tasks)}.",
+        f"Scheduler failed tasks: {failed}.",
+        f"Scheduler status: {'success' if status.success else 'attention required'}.",
     ]
 
 

@@ -80,3 +80,11 @@ docker compose run --rm russworks-daily
 
 `RUSSWORKS_SCHEDULE_ENABLED` and `RUSSWORKS_DAILY_RUN_TIME_UTC` are stored as
 runtime metadata for operators and future schedulers.
+
+The autonomous scheduler can also be run once through the deployment runtime:
+
+```bash
+python -m russworks.deployment.runtime --run-scheduler
+```
+
+Scheduler status is exported to `data/scheduler/scheduler_status.json`.

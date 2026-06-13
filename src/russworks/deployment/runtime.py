@@ -8,6 +8,7 @@ from typing import Mapping
 
 from russworks.configuration import ConfigLoader
 from russworks.pipeline import DailyRunRequest, RussWorksPipeline
+from russworks.scheduler import SchedulerEngine, SchedulerStatus
 
 from .models import (
     DeploymentConfig,
@@ -112,15 +113,32 @@ def run_daily_from_env(env: Mapping[str, str] | None = None) -> RuntimeExecution
     )
 
 
+def run_scheduler_from_env(env: Mapping[str, str] | None = None) -> SchedulerStatus:
+    config = config_from_env(env)
+    validation = validate_runtime_config(config)
+    if not validation.success:
+        return SchedulerStatus(generated_at=datetime.utcnow().replace(microsecond=0).isoformat() + "Z", date=config.date or _today(), errors=list(validation.errors))
+    return SchedulerEngine().run_schedule(
+        config.date or _today(),
+        deployment_config=config,
+        output_dir=Path(config.report_volume) / "scheduler",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Russ-Works deployment runtime helper.")
     parser.add_argument("--validate-only", action="store_true", help="Validate container runtime configuration without running the pipeline.")
+    parser.add_argument("--run-scheduler", action="store_true", help="Run the autonomous scheduler once using environment configuration.")
     args = parser.parse_args(argv)
     config = config_from_env()
     if args.validate_only:
         validation = validate_runtime_config(config)
         print(RuntimeExecutionResult(success=validation.success, config=config, validation=validation, errors=list(validation.errors)).to_json())
         return 0 if validation.success else 1
+    if args.run_scheduler:
+        status = run_scheduler_from_env()
+        print(status.to_json())
+        return 0 if status.success else 1
     result = run_daily_from_env()
     print(result.to_json())
     return 0 if result.success else 1
