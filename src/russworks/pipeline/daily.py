@@ -6,6 +6,7 @@ from typing import Callable, Sequence
 from russworks.cluster import ClusterRanking, generate_cluster_report
 from russworks.configuration import ConfigLoader, RussWorksUserConfig
 from russworks.data import CSVDataProvider, DailySlate, load_daily_slate as load_slate_from_provider
+from russworks.diversification import DiversificationEngine, DiversificationResult
 from russworks.explainability import ExplainabilityEngine
 from russworks.integrity import IntegrityEngine, IntegrityReport
 from russworks.intake import ReviewQueue, validate_step2_intake
@@ -33,6 +34,7 @@ class RussWorksPipeline:
         self._report_generator = ReportGenerator()
         self._integrity_engine = IntegrityEngine()
         self._portfolio_engine = PortfolioEngine()
+        self._diversification_engine = DiversificationEngine()
         self._active_config: RussWorksUserConfig | None = None
         self._provider_results = []
         self._provider_health = []
@@ -77,10 +79,12 @@ class RussWorksPipeline:
             step4 = self.run_step4(step3)
             step5 = self.run_step5(step4)
             portfolio = self.analyze_portfolio(step5)
-            report = self.generate_full_report(slate, step3, step4, step5, portfolio)
+            diversification = self.analyze_diversification(step5, portfolio)
+            report = self.generate_full_report(slate, step3, step4, step5, portfolio, diversification)
             output_dir, report_path = self.save_outputs(run_request, report)
             _, integrity_path = self.save_integrity_report(run_request, integrity_report)
             _, portfolio_path = self.save_portfolio_report(run_request, portfolio)
+            _, diversification_path = self.save_diversification_report(run_request, diversification)
             errors = [*step4.errors, *step5.errors]
             return DailyRunResult(
                 request=run_request,
@@ -91,9 +95,11 @@ class RussWorksPipeline:
                 report_json_path=str(report_path),
                 integrity_report_path=str(integrity_path),
                 portfolio_report_path=str(portfolio_path),
+                diversification_report_path=str(diversification_path),
                 slate=slate,
                 integrity_report=integrity_report,
                 portfolio_report=portfolio,
+                diversification_report=diversification,
                 step3_result=step3,
                 step4_result=step4,
                 step5_result=step5,
@@ -156,6 +162,9 @@ class RussWorksPipeline:
     def analyze_portfolio(self, step5_result: SlipPortfolio) -> PortfolioProfile:
         return self._portfolio_engine.analyze_portfolio(step5_result)
 
+    def analyze_diversification(self, step5_result: SlipPortfolio, portfolio: PortfolioProfile) -> DiversificationResult:
+        return self._diversification_engine.analyze_diversification(step5_result, portfolio_profile=portfolio)
+
     def generate_full_report(
         self,
         slate: DailySlate,
@@ -163,6 +172,7 @@ class RussWorksPipeline:
         step4_result: ClusterRanking,
         step5_result: SlipPortfolio,
         portfolio: PortfolioProfile | None = None,
+        diversification: DiversificationResult | None = None,
     ) -> FullRussWorksReport:
         context = slate.to_report_context()
         if self._active_config is not None:
@@ -172,6 +182,7 @@ class RussWorksPipeline:
             cluster_ranking=step4_result,
             slip_portfolio=step5_result,
             portfolio_profile=portfolio,
+            diversification_result=diversification,
         )
         return self._report_generator.generate_full_report(
             context=context,
@@ -180,6 +191,7 @@ class RussWorksPipeline:
             slip_portfolio=step5_result,
             explanations=explanations,
             portfolio=portfolio.to_dict() if portfolio else {},
+            diversification=diversification.to_dict() if diversification else {},
         )
 
     def save_outputs(self, request: DailyRunRequest, report: FullRussWorksReport) -> tuple[Path, Path]:
@@ -198,6 +210,10 @@ class RussWorksPipeline:
     def save_portfolio_report(self, request: DailyRunRequest, report: PortfolioProfile) -> tuple[Path, Path]:
         portfolio_dir = Path(request.output_root).parent / "portfolio"
         return portfolio_dir, self._portfolio_engine.export_json(report, portfolio_dir)
+
+    def save_diversification_report(self, request: DailyRunRequest, report: DiversificationResult) -> tuple[Path, Path]:
+        diversification_dir = Path(request.output_root).parent / "diversification"
+        return diversification_dir, self._diversification_engine.export_json(report, diversification_dir)
 
 
 def run_daily_pipeline(

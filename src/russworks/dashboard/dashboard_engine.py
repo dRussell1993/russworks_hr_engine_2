@@ -8,6 +8,7 @@ from typing import Iterable, Sequence
 from russworks.backtesting import BacktestResult, DailyBacktestSummary
 from russworks.calibration import CalibrationMetric, CalibrationResult
 from russworks.confidence import ConfidenceEngine, ConfidenceResult
+from russworks.diversification import DiversificationResult
 from russworks.integrity import IntegrityReport
 from russworks.portfolio import PortfolioProfile
 from russworks.postmortem import PostMortemReport
@@ -53,6 +54,7 @@ class CalibrationDashboardEngine:
         integrity_report: IntegrityReport | None = None,
         confidence_results: Sequence[ConfidenceResult] = (),
         portfolio_profile: PortfolioProfile | None = None,
+        diversification_result: DiversificationResult | None = None,
     ) -> CalibrationDashboard:
         modules = _module_performances(calibration_result, backtest_result)
         top = sorted(modules, key=lambda item: (item.confidence_accuracy, item.hit_rate, item.wins), reverse=True)[:5]
@@ -64,6 +66,7 @@ class CalibrationDashboardEngine:
         integrity_summaries = _integrity_summaries(integrity_report)
         confidence_summaries = ConfidenceEngine().summarize_results(list(confidence_results))
         portfolio_summaries = _portfolio_summaries(portfolio_profile)
+        diversification_summaries = _diversification_summaries(diversification_result)
         errors = []
         if calibration_result and calibration_result.errors:
             errors.extend(calibration_result.errors)
@@ -83,6 +86,7 @@ class CalibrationDashboardEngine:
             integrity_summaries=integrity_summaries,
             confidence_summaries=confidence_summaries,
             portfolio_summaries=portfolio_summaries,
+            diversification_summaries=diversification_summaries,
             errors=errors,
         )
 
@@ -156,6 +160,7 @@ def build_calibration_dashboard(
     integrity_report: IntegrityReport | None = None,
     confidence_results: Sequence[ConfidenceResult] = (),
     portfolio_profile: PortfolioProfile | None = None,
+    diversification_result: DiversificationResult | None = None,
 ) -> CalibrationDashboard:
     return CalibrationDashboardEngine().build_dashboard(
         calibration_result=calibration_result,
@@ -164,6 +169,7 @@ def build_calibration_dashboard(
         integrity_report=integrity_report,
         confidence_results=confidence_results,
         portfolio_profile=portfolio_profile,
+        diversification_result=diversification_result,
     )
 
 
@@ -353,6 +359,15 @@ def _portfolio_summaries(profile: PortfolioProfile | None) -> list[str]:
     return [
         f"Portfolio risk {profile.risk_report.risk_grade.value} at {profile.risk_report.risk_score:.1f}.",
         f"Portfolio recommendations generated: {len(profile.recommendations)}.",
+    ]
+
+
+def _diversification_summaries(result: DiversificationResult | None) -> list[str]:
+    if result is None:
+        return []
+    return [
+        f"Diversification target {result.target.value} generated {len(result.recommendations)} recommendations.",
+        f"Suggested swaps: {len(result.suggested_swaps)}.",
     ]
 
 
