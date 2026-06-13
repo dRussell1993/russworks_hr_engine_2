@@ -33,6 +33,7 @@ class GameEnvironment:
     weather_distance_ft: float = 0.0
     park_hr_factor: float = 0.0
     umpire: Optional[Umpire] = None
+    original_game_id: str = ""
 
 
 @dataclass

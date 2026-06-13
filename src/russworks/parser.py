@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List
 
 from .models import Batter, GameEnvironment, Handedness, HRMatchup, Pitcher, PitcherWeakSpot, Umpire
+from .data import normalize_game_id
 
 
 def _hand(value: str) -> Handedness:
@@ -76,7 +77,7 @@ def parse_environment(path: str | Path) -> GameEnvironment:
         run_lean=float(r.get("run_lean") or 0),
     )
     return GameEnvironment(
-        game_id=r["game_id"],
+        game_id=normalize_game_id(r["game_id"]),
         date=r["date"],
         away_team=r["away_team"],
         home_team=r["home_team"],
@@ -90,6 +91,7 @@ def parse_environment(path: str | Path) -> GameEnvironment:
         weather_distance_ft=float(r.get("weather_distance_ft") or 0),
         park_hr_factor=float(r.get("park_hr_factor") or 0),
         umpire=ump,
+        original_game_id=r["game_id"],
     )
 
 
@@ -103,6 +105,7 @@ def parse_weak_spots(path: str | Path) -> List[PitcherWeakSpot]:
             zone=r.get("zone") or r.get("Zone"),
             weakness_score=float(r.get("weakness_score") or r.get("score") or 0),
             notes=r.get("notes") or "",
+            original_game_id=r.get("game_id") or r.get("game") or "",
         ))
     return out
 
@@ -120,5 +123,6 @@ def parse_hr_matchups(path: str | Path) -> List[HRMatchup]:
             angle=float(r.get("angle") or r.get("Angle") or 0) or None,
             distance=float(r.get("distance") or r.get("Distance") or 0) or None,
             notes=r.get("notes") or "",
+            original_game_id=r.get("game_id") or r.get("game") or "",
         ))
     return out

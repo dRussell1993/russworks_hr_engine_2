@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -57,6 +58,7 @@ class RussWorksPipeline:
             integrity_report = self.run_integrity_checks(slate)
             validation_queues = self.validate_slate(slate)
             missing_data = _merge_missing_data(validation_queues)
+            missing_data = _with_unmatched_game_ids(missing_data, slate)
             if missing_data:
                 errors = _missing_data_errors(missing_data)
                 _, integrity_path = self.save_integrity_report(run_request, integrity_report)
@@ -369,6 +371,30 @@ def _merge_missing_data(queues: Sequence[ReviewQueue]) -> dict[str, list[str]]:
                 if value not in merged[category]:
                     merged[category].append(value)
     return {category: values for category, values in merged.items() if values}
+
+
+def _with_unmatched_game_ids(missing_data: dict[str, list[str]], slate: DailySlate) -> dict[str, list[str]]:
+    raw = slate.metadata.get("unmatched_game_ids", "")
+    if not raw:
+        return missing_data
+    try:
+        unmatched = json.loads(raw)
+    except json.JSONDecodeError:
+        return missing_data
+    if not isinstance(unmatched, dict):
+        return missing_data
+    merged = {category: list(values) for category, values in missing_data.items()}
+    messages = merged.setdefault("unmatched_game_id", [])
+    for dataset, values in sorted(unmatched.items()):
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            message = f"{dataset}: {value}"
+            if message not in messages:
+                messages.append(message)
+    if not messages:
+        merged.pop("unmatched_game_id", None)
+    return merged
 
 
 def _missing_data_errors(missing_data: dict[str, list[str]]) -> list[str]:

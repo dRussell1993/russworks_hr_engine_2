@@ -17,6 +17,7 @@ class GameIntake:
     umpire: Optional[Umpire] = None
     weak_spots: List[PitcherWeakSpot] = field(default_factory=list)
     hr_matchups: List[HRMatchup] = field(default_factory=list)
+    original_game_id: str = ""
 
     @property
     def teams(self) -> List[TeamIntake]:

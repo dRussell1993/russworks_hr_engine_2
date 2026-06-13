@@ -147,6 +147,13 @@ def _write_daily_csv_fixture(root: Path, date: str) -> None:
     _write_csv(day, "hr_matchups", ["game_id", "batter_name", "pitcher_name", "pitch", "matchup_score"], [["tex-kc-1", "TEX Batter 1", "KC Starter", "slider", 8]])
 
 
+def _write_daily_csv_fixture_with_unmatched_matchup(root: Path, date: str) -> None:
+    _write_daily_csv_fixture(root, date)
+    day = root / date
+    _write_csv(day, "weak_spots", ["game_id", "pitcher_name", "pitch", "weakness_score"], [["SEA@OAK", "KC Starter", "slider", 6]])
+    _write_csv(day, "hr_matchups", ["game_id", "batter_name", "pitcher_name", "pitch", "matchup_score"], [["SEA@OAK", "TEX Batter 1", "KC Starter", "slider", 8]])
+
+
 def test_phase19_daily_models_are_dataclasses():
     assert is_dataclass(DailyRunRequest)
     assert is_dataclass(DailyRunResult)
@@ -217,6 +224,24 @@ def test_top_level_run_daily_pipeline_uses_csv_data_connectors():
         assert Path(result.dashboard_path).exists()
         assert Path(result.command_center_path).exists()
         assert Path(result.web_dashboard_path).exists()
+
+
+def test_daily_pipeline_validation_output_includes_unmatched_game_ids():
+    with TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        data_root = root / "daily"
+        output_root = root / "outputs"
+        _write_daily_csv_fixture_with_unmatched_matchup(data_root, "2026-06-13")
+
+        result = run_daily_pipeline("2026-06-13", data_root=str(data_root), output_root=str(output_root))
+
+        assert not result.success
+        assert result.validation_status == "invalid"
+        assert result.missing_data["weak_spot"] == ["pitcher weak spot data"]
+        assert result.missing_data["hr_matchup"] == ["HR matchup data"]
+        assert "weak_spots: SEA@OAK" in result.missing_data["unmatched_game_id"]
+        assert "hr_matchups: SEA@OAK" in result.missing_data["unmatched_game_id"]
+        assert "unmatched_game_id" in result.errors[0]
 
 
 def test_cli_runs_pipeline_and_returns_success_code():

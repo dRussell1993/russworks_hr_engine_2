@@ -17,6 +17,7 @@ from russworks.data import (
     load_daily_slate,
     load_game_data,
     load_watchlist,
+    normalize_game_id,
 )
 from russworks.intake import validate_step2_intake
 from russworks.models import Handedness
@@ -177,6 +178,14 @@ def test_phase16_provider_models_and_interfaces_exist():
     assert EnvironmentProvider
 
 
+def test_normalize_game_id_supports_common_daily_formats():
+    assert normalize_game_id("ARI-at-CIN-2026-06-13") == "ari-cin-1"
+    assert normalize_game_id("ari-cin-1") == "ari-cin-1"
+    assert normalize_game_id("ARI@CIN") == "ari-cin-1"
+    assert normalize_game_id("ARI-CIN") == "ari-cin-1"
+    assert normalize_game_id("ARI-CIN-2026-06-13") == "ari-cin-1"
+
+
 def test_csv_provider_loads_watchlist_and_game_data_into_intake_models():
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -201,6 +210,62 @@ def test_csv_provider_loads_watchlist_and_game_data_into_intake_models():
         assert game.environment.park_hr_factor == 8.5
         assert game.weak_spots[0].pitcher_name == "KC Starter"
         assert game.hr_matchups[0].batter_name == "TEX Batter 1"
+        assert validate_step2_intake(game).is_valid
+
+
+def test_csv_provider_matches_mixed_game_id_formats_and_preserves_original_ids():
+    with TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        _write_csv(root, "watchlist", [{"game_id": "ARI@CIN", "name": "ARI Watch Bat", "team": "ARI", "lineup_slot": 4}])
+        _write_csv(root, "lineups", _lineup_rows("ari-cin-1", "ARI", "L") + _lineup_rows("ARI@CIN", "CIN", "R"))
+        _write_csv(
+            root,
+            "pitchers",
+            [
+                {"game_id": "ARI-CIN", "name": "ARI Starter", "team": "ARI", "throws": "R", "confirmed": "true"},
+                {"game_id": "ARI-at-CIN-2026-06-13", "name": "CIN Starter", "team": "CIN", "throws": "L", "confirmed": "true"},
+            ],
+        )
+        _write_csv(
+            root,
+            "weather",
+            [
+                {
+                    "game_id": "ARI-at-CIN-2026-06-13",
+                    "date": "2026-06-13",
+                    "away_team": "ARI",
+                    "home_team": "CIN",
+                    "park": "Great American Ball Park",
+                    "temperature_f": 84,
+                }
+            ],
+        )
+        _write_csv(root, "umpires", [{"game_id": "ARI-CIN", "name": "Russ Zone"}])
+        _write_csv(root, "park_factors", [{"game_id": "ARI@CIN", "park_hr_factor": 9.0}])
+        _write_csv(root, "weak_spots", [{"game_id": "ari-cin-1", "pitcher_name": "CIN Starter", "pitch": "fastball", "weakness_score": 7.0}])
+        _write_csv(
+            root,
+            "hr_matchups",
+            [
+                {
+                    "game_id": "ARI-at-CIN-2026-06-13",
+                    "batter_name": "ARI Batter 4",
+                    "pitcher_name": "CIN Starter",
+                    "pitch": "fastball",
+                    "matchup_score": 8.0,
+                }
+            ],
+        )
+
+        slate = load_daily_slate(CSVDataProvider(root), "2026-06-13")
+
+        assert slate.game_ids == ["ari-cin-1"]
+        game = slate.games[0]
+        assert game.original_game_id
+        assert game.environment.original_game_id == "ARI-at-CIN-2026-06-13"
+        assert game.weak_spots[0].original_game_id == "ari-cin-1"
+        assert game.hr_matchups[0].original_game_id == "ARI-at-CIN-2026-06-13"
+        assert json.loads(slate.metadata["unmatched_game_ids"]) == {}
         assert validate_step2_intake(game).is_valid
 
 
