@@ -19,6 +19,7 @@ class DailyRunRequest:
     data_root: str = "data/daily"
     output_root: str = "data/outputs"
     provider_mode: str = "csv"
+    config_path: str = "config/russworks_config.yaml"
 
 
 @dataclass(frozen=True)

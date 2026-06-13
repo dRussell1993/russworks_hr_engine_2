@@ -13,6 +13,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-root", default="data/daily", help="Root folder containing daily input folders.")
     parser.add_argument("--output-root", default="data/outputs", help="Root folder for daily output folders.")
     parser.add_argument("--provider-mode", default="csv", choices=["csv", "live"], help="Daily slate source mode.")
+    parser.add_argument("--config-path", default="config/russworks_config.yaml", help="Russ-Works user config YAML path.")
     args = parser.parse_args(argv)
 
     request = DailyRunRequest(
@@ -20,6 +21,7 @@ def main(argv: list[str] | None = None) -> int:
         data_root=args.data_root,
         output_root=args.output_root,
         provider_mode=args.provider_mode,
+        config_path=args.config_path,
     )
     result = RussWorksPipeline().run_daily_pipeline(args.date, request)
     print(

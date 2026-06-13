@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 from russworks.config.weights import ScoringWeights
+from russworks.configuration import RussWorksUserConfig, default_user_config
 from russworks.intake import BatterIntake, GameIntake, ReviewQueue, validate_step2_intake
 from russworks.models import Batter, GameEnvironment, Pitcher, RussTier
 from russworks.scoring.bullpen import BullpenExposureEngine, BullpenProfile, RelieverProfile
@@ -39,8 +40,9 @@ class Step3ReviewError(RuntimeError):
 
 
 class Step3ReviewEngine:
-    def __init__(self, weights: ScoringWeights | None = None) -> None:
-        self.weights = weights or ScoringWeights.defaults()
+    def __init__(self, weights: ScoringWeights | None = None, user_config: RussWorksUserConfig | None = None) -> None:
+        self.user_config = (user_config or default_user_config()).validate()
+        self.weights = weights or self.user_config.to_scoring_weights()
         self.weak_spot_collision_engine = WeakSpotCollisionEngine()
         self.ypi_engine = YPIEngine()
         self.veteran_bounce_engine = VeteranBounceEngine()
@@ -111,17 +113,39 @@ class Step3ReviewEngine:
         )
         bullpen_exposure = self.bullpen_exposure_engine.score_profile(_bullpen_profile(opponent_pitcher, game))
         park_factor = self.park_factor_engine.score_profile(_park_factor_profile(batter, _environment_with_umpire(game.environment, game)))
+        toggles = self.user_config.module_toggles
 
-        ypi_flag = _has_any_tag(batter, {"ypi", "young", "prospect", "rookie", "small sample", "speed-power"}) or ypi.ypi_grade in {"Elite", "Strong", "Emerging"}
-        catcher_power_flag = catcher_power.grade in {"Elite", "Strong", "Moderate"}
-        veteran_bounce_flag = _has_any_tag(batter, {"veteran", "superstar", "5-tool", "power threat"}) or veteran_bounce.grade in {"Elite", "Strong", "Moderate"}
-        weak_spot_collision_flag = pvs.components.get("weak_spot_collision", 0.0) > 0 or collision.collision_score >= 25
+        ypi_flag = toggles.use_ypi and (_has_any_tag(batter, {"ypi", "young", "prospect", "rookie", "small sample", "speed-power"}) or ypi.ypi_grade in {"Elite", "Strong", "Emerging"})
+        catcher_power_flag = toggles.use_catcher_power and catcher_power.grade in {"Elite", "Strong", "Moderate"}
+        veteran_bounce_flag = toggles.use_veteran_bounce and (_has_any_tag(batter, {"veteran", "superstar", "5-tool", "power threat"}) or veteran_bounce.grade in {"Elite", "Strong", "Moderate"})
+        weak_spot_collision_flag = toggles.use_weak_spot_collision and (pvs.components.get("weak_spot_collision", 0.0) > 0 or collision.collision_score >= 25)
         non_superstar_core_flag = not _has_any_tag(batter, {"superstar"}) and (
             pvs.label in {"strong", "elite"} or tag.grade.startswith("A") or cps.grade.startswith("A")
         )
-        pitch_mix_matchup_flag = pitch_mix_matchup.grade in {"Elite", "Strong", "Moderate"}
-        bullpen_exposure_flag = bullpen_exposure.grade in {"Elite", "Strong", "Moderate"}
-        park_factor_flag = park_factor.grade in {"Elite", "Strong", "Moderate"}
+        pitch_mix_matchup_flag = toggles.use_pitch_mix and pitch_mix_matchup.grade in {"Elite", "Strong", "Moderate"}
+        bullpen_exposure_flag = toggles.use_bullpen_exposure and bullpen_exposure.grade in {"Elite", "Strong", "Moderate"}
+        park_factor_flag = toggles.use_park_factor and park_factor.grade in {"Elite", "Strong", "Moderate"}
+        weak_spot_score = collision.collision_score if toggles.use_weak_spot_collision else 0.0
+        weak_spot_confidence = collision.collision_confidence if toggles.use_weak_spot_collision else 0.0
+        weak_spot_grade = collision.collision_grade if toggles.use_weak_spot_collision else "D"
+        ypi_score = ypi.ypi_score if toggles.use_ypi else 0.0
+        ypi_confidence = ypi.ypi_confidence if toggles.use_ypi else 0.0
+        ypi_grade = ypi.ypi_grade if toggles.use_ypi else "Weak"
+        veteran_score = veteran_bounce.veteran_bounce_score if toggles.use_veteran_bounce else 0.0
+        veteran_confidence = veteran_bounce.confidence if toggles.use_veteran_bounce else 0.0
+        veteran_grade = veteran_bounce.grade if toggles.use_veteran_bounce else "Weak"
+        catcher_score = catcher_power.catcher_power_score if toggles.use_catcher_power else 0.0
+        catcher_confidence = catcher_power.confidence if toggles.use_catcher_power else 0.0
+        catcher_grade = catcher_power.grade if toggles.use_catcher_power else "Weak"
+        pitch_mix_score = pitch_mix_matchup.pitch_mix_matchup_score if toggles.use_pitch_mix else 0.0
+        pitch_mix_confidence = pitch_mix_matchup.confidence if toggles.use_pitch_mix else 0.0
+        pitch_mix_grade = pitch_mix_matchup.grade if toggles.use_pitch_mix else "Weak"
+        bullpen_score = bullpen_exposure.bullpen_exposure_score if toggles.use_bullpen_exposure else 0.0
+        bullpen_confidence = bullpen_exposure.confidence if toggles.use_bullpen_exposure else 0.0
+        bullpen_grade = bullpen_exposure.grade if toggles.use_bullpen_exposure else "Weak"
+        park_score = park_factor.park_factor_score if toggles.use_park_factor else 0.0
+        park_confidence = park_factor.confidence if toggles.use_park_factor else 0.0
+        park_grade = park_factor.grade if toggles.use_park_factor else "Neutral"
 
         final_score = _final_russ_score(
             batter=batter,
@@ -164,34 +188,34 @@ class Step3ReviewEngine:
                 veteran_bounce_flag,
                 non_superstar_core_flag,
                 weak_spot_collision_flag,
-                ypi.ypi_grade,
-                veteran_bounce.grade,
-                catcher_power.grade,
-                pitch_mix_matchup.grade,
-                bullpen_exposure.grade,
-                park_factor.grade,
+                ypi_grade,
+                veteran_grade,
+                catcher_grade,
+                pitch_mix_grade,
+                bullpen_grade,
+                park_grade,
             ),
-            weak_spot_collision_score=collision.collision_score,
-            weak_spot_collision_confidence=collision.collision_confidence,
-            weak_spot_collision_grade=collision.collision_grade,
-            ypi_score=ypi.ypi_score,
-            ypi_confidence=ypi.ypi_confidence,
-            ypi_grade=ypi.ypi_grade,
-            veteran_bounce_score=veteran_bounce.veteran_bounce_score,
-            veteran_bounce_confidence=veteran_bounce.confidence,
-            veteran_bounce_grade=veteran_bounce.grade,
-            catcher_power_score=catcher_power.catcher_power_score,
-            catcher_power_confidence=catcher_power.confidence,
-            catcher_power_grade=catcher_power.grade,
-            pitch_mix_matchup_score=pitch_mix_matchup.pitch_mix_matchup_score,
-            pitch_mix_matchup_confidence=pitch_mix_matchup.confidence,
-            pitch_mix_matchup_grade=pitch_mix_matchup.grade,
-            bullpen_exposure_score=bullpen_exposure.bullpen_exposure_score,
-            bullpen_exposure_confidence=bullpen_exposure.confidence,
-            bullpen_exposure_grade=bullpen_exposure.grade,
-            park_factor_score=park_factor.park_factor_score,
-            park_factor_confidence=park_factor.confidence,
-            park_factor_grade=park_factor.grade,
+            weak_spot_collision_score=weak_spot_score,
+            weak_spot_collision_confidence=weak_spot_confidence,
+            weak_spot_collision_grade=weak_spot_grade,
+            ypi_score=ypi_score,
+            ypi_confidence=ypi_confidence,
+            ypi_grade=ypi_grade,
+            veteran_bounce_score=veteran_score,
+            veteran_bounce_confidence=veteran_confidence,
+            veteran_bounce_grade=veteran_grade,
+            catcher_power_score=catcher_score,
+            catcher_power_confidence=catcher_confidence,
+            catcher_power_grade=catcher_grade,
+            pitch_mix_matchup_score=pitch_mix_score,
+            pitch_mix_matchup_confidence=pitch_mix_confidence,
+            pitch_mix_matchup_grade=pitch_mix_grade,
+            bullpen_exposure_score=bullpen_score,
+            bullpen_exposure_confidence=bullpen_confidence,
+            bullpen_exposure_grade=bullpen_grade,
+            park_factor_score=park_score,
+            park_factor_confidence=park_confidence,
+            park_factor_grade=park_grade,
         )
 
     def _build_context(self, game: GameIntake, queue: ReviewQueue) -> Step3GameContext:
@@ -245,8 +269,8 @@ class Step3ReviewEngine:
         )
 
 
-def review_all_batters(game: GameIntake) -> BatterReviewResult:
-    return Step3ReviewEngine().review_all_batters(game)
+def review_all_batters(game: GameIntake, user_config: RussWorksUserConfig | None = None) -> BatterReviewResult:
+    return Step3ReviewEngine(user_config=user_config).review_all_batters(game)
 
 
 def review_batter(batter: BatterIntake, game_context: Step3GameContext) -> BatterReview:

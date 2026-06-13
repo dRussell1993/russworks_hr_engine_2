@@ -1,0 +1,35 @@
+module_toggles:
+  use_ypi: true
+  use_veteran_bounce: true
+  use_catcher_power: true
+  use_pitch_mix: true
+  use_bullpen_exposure: true
+  use_park_factor: true
+  use_weak_spot_collision: true
+
+weight_overrides:
+  TAG:
+  CPS:
+  LSTM:
+  PVS:
+  Environment:
+  Umpire:
+  Weak Spot:
+  YPI:
+  Veteran Bounce:
+  Catcher Power:
+  Pitch Mix:
+  Bullpen Exposure:
+  Park Factor V2:
+
+slip_preferences:
+  allow_core_slips: true
+  allow_non_superstar_core: true
+  allow_balanced_slips: true
+  allow_chaos_slips: true
+  allow_contrarian_slips: true
+  max_slips: 999
+  legs_per_slip: 4
+
+risk_profile:
+  profile: balanced

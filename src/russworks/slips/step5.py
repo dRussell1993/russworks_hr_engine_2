@@ -3,25 +3,30 @@ from __future__ import annotations
 from typing import Iterable, List, Sequence
 
 from russworks.cluster import ClusterRanking, TeamClusterReport
+from russworks.configuration import RussWorksUserConfig, default_user_config
 
 from .models import Slip, SlipLeg, SlipPortfolio
 
 
 class Step5SlipEngine:
+    def __init__(self, user_config: RussWorksUserConfig | None = None) -> None:
+        self.user_config = (user_config or default_user_config()).validate()
+
     def generate_slip_portfolio(self, cluster_report: ClusterRanking | None) -> SlipPortfolio:
         errors = self._validate_cluster_report(cluster_report)
         if errors:
             return SlipPortfolio(errors=errors)
 
         assert cluster_report is not None
+        prefs = self.user_config.slip_preferences
         portfolio = SlipPortfolio(
-            core_slips=self.generate_core_slips(cluster_report),
-            non_superstar_core_slips=self.generate_non_superstar_core_slips(cluster_report),
-            balanced_slips=self.generate_balanced_slips(cluster_report),
-            chaos_slips=self.generate_chaos_slips(cluster_report),
-            contrarian_slips=self.generate_contrarian_slips(cluster_report),
+            core_slips=self.generate_core_slips(cluster_report) if prefs.allow_core_slips else [],
+            non_superstar_core_slips=self.generate_non_superstar_core_slips(cluster_report) if prefs.allow_non_superstar_core else [],
+            balanced_slips=self.generate_balanced_slips(cluster_report) if prefs.allow_balanced_slips else [],
+            chaos_slips=self.generate_chaos_slips(cluster_report) if prefs.allow_chaos_slips else [],
+            contrarian_slips=self.generate_contrarian_slips(cluster_report) if prefs.allow_contrarian_slips else [],
         )
-        return self._dedupe_and_validate(portfolio)
+        return self._limit_portfolio(self._dedupe_and_validate(portfolio))
 
     def generate_core_slips(self, cluster_report: ClusterRanking) -> List[Slip]:
         slips: List[Slip] = []
@@ -34,7 +39,7 @@ class Step5SlipEngine:
             slip = _slip(
                 name=f"{team_report.team} Core Cluster",
                 slip_type="core",
-                legs=legs,
+                legs=self._limit_legs(legs),
                 justification=f"Built around the strongest TAG/CPS cluster while keeping formula fit ahead of name value. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}. Pitch Mix grade: {team_report.pitch_mix_matchup_grade}. Bullpen Exposure grade: {team_report.bullpen_exposure_grade}. Park Factor grade: {team_report.park_factor_grade}.",
                 cluster=team_report,
             )
@@ -65,7 +70,7 @@ class Step5SlipEngine:
             slip = _slip(
                 name=f"{team_report.team} Non-Superstar Core",
                 slip_type="non_superstar_core",
-                legs=legs,
+                legs=self._limit_legs(legs),
                 justification=f"Prioritizes hidden cluster beneficiaries, value bats, and Step 4 non-superstar core flags. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}. Pitch Mix grade: {team_report.pitch_mix_matchup_grade}. Bullpen Exposure grade: {team_report.bullpen_exposure_grade}. Park Factor grade: {team_report.park_factor_grade}.",
                 cluster=team_report,
                 min_legs=2,
@@ -99,7 +104,7 @@ class Step5SlipEngine:
         slip = _slip(
             name=f"{top.team} Balanced Formula",
             slip_type="balanced",
-            legs=legs,
+            legs=self._limit_legs(legs),
             justification=f"Mixes elite cluster bats and value bats from the highest-ranked cluster. YPI grade: {top.ypi_grade}. Veteran Bounce grade: {top.veteran_bounce_grade}. Catcher Power grade: {top.catcher_power_grade}. Pitch Mix grade: {top.pitch_mix_matchup_grade}. Bullpen Exposure grade: {top.bullpen_exposure_grade}. Park Factor grade: {top.park_factor_grade}.",
             cluster=top,
         )
@@ -121,7 +126,7 @@ class Step5SlipEngine:
             slip = _slip(
                 name="Cross-Cluster Balanced Formula",
                 slip_type="balanced",
-                legs=legs,
+                legs=self._limit_legs(legs),
                 justification=f"Balances the top-ranked cluster with an overlooked bat from the next viable cluster. Top YPI grade: {top.ypi_grade}. Top Veteran Bounce grade: {top.veteran_bounce_grade}. Top Catcher Power grade: {top.catcher_power_grade}. Top Pitch Mix grade: {top.pitch_mix_matchup_grade}. Top Bullpen Exposure grade: {top.bullpen_exposure_grade}. Top Park Factor grade: {top.park_factor_grade}.",
                 cluster=top,
                 min_legs=3,
@@ -150,7 +155,7 @@ class Step5SlipEngine:
             slip = _slip(
                 name=f"{team_report.team} Chaos Cluster",
                 slip_type="chaos",
-                legs=legs,
+                legs=self._limit_legs(legs),
                 justification=f"Higher-variance construction that allows catcher power, YPI, veteran bounce, Pitch Mix, Bullpen Exposure, Park Factor, and cluster-extension profiles. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}. Pitch Mix grade: {team_report.pitch_mix_matchup_grade}. Bullpen Exposure grade: {team_report.bullpen_exposure_grade}. Park Factor grade: {team_report.park_factor_grade}.",
                 cluster=team_report,
                 min_legs=2,
@@ -181,7 +186,7 @@ class Step5SlipEngine:
             slip = _slip(
                 name=f"{team_report.team} Contrarian Cluster",
                 slip_type="contrarian",
-                legs=legs,
+                legs=self._limit_legs(legs),
                 justification=f"Lower-ownership style construction that leverages overlooked cluster paths. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}. Pitch Mix grade: {team_report.pitch_mix_matchup_grade}. Bullpen Exposure grade: {team_report.bullpen_exposure_grade}. Park Factor grade: {team_report.park_factor_grade}.",
                 cluster=team_report,
                 min_legs=2,
@@ -200,6 +205,34 @@ class Step5SlipEngine:
         if not cluster_report.ranked_teams:
             errors.append("Step 5 requires at least one ranked Step 4 team cluster.")
         return errors
+
+    def _limit_legs(self, legs: Sequence[SlipLeg]) -> List[SlipLeg]:
+        return list(legs)[: self.user_config.slip_preferences.legs_per_slip]
+
+    def _limit_portfolio(self, portfolio: SlipPortfolio) -> SlipPortfolio:
+        max_slips = self.user_config.slip_preferences.max_slips
+        if max_slips >= len(portfolio.all_slips):
+            return portfolio
+        remaining = max_slips
+        groups = []
+        for slips in [
+            portfolio.core_slips,
+            portfolio.non_superstar_core_slips,
+            portfolio.balanced_slips,
+            portfolio.chaos_slips,
+            portfolio.contrarian_slips,
+        ]:
+            keep = list(slips)[: max(0, remaining)]
+            remaining -= len(keep)
+            groups.append(keep)
+        return SlipPortfolio(
+            core_slips=groups[0],
+            non_superstar_core_slips=groups[1],
+            balanced_slips=groups[2],
+            chaos_slips=groups[3],
+            contrarian_slips=groups[4],
+            errors=list(portfolio.errors),
+        )
 
     def _dedupe_and_validate(self, portfolio: SlipPortfolio) -> SlipPortfolio:
         seen: set[tuple[str, ...]] = set()
@@ -235,8 +268,8 @@ class Step5SlipEngine:
         return deduped
 
 
-def generate_slip_portfolio(cluster_report: ClusterRanking | None) -> SlipPortfolio:
-    return Step5SlipEngine().generate_slip_portfolio(cluster_report)
+def generate_slip_portfolio(cluster_report: ClusterRanking | None, user_config: RussWorksUserConfig | None = None) -> SlipPortfolio:
+    return Step5SlipEngine(user_config=user_config).generate_slip_portfolio(cluster_report)
 
 
 def generate_core_slips(cluster_report: ClusterRanking) -> List[Slip]:
