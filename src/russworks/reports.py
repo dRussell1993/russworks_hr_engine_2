@@ -71,6 +71,7 @@ class FullRussWorksReport:
     explanations: Dict[str, Any] = field(default_factory=dict)
     portfolio: Dict[str, Any] = field(default_factory=dict)
     diversification: Dict[str, Any] = field(default_factory=dict)
+    simulation: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return _json_ready(asdict(self))
@@ -129,6 +130,7 @@ class ReportGenerator:
         explanations: Mapping[str, Any] | None = None,
         portfolio: Mapping[str, Any] | None = None,
         diversification: Mapping[str, Any] | None = None,
+        simulation: Mapping[str, Any] | None = None,
     ) -> FullRussWorksReport:
         return FullRussWorksReport(
             context=context,
@@ -138,6 +140,7 @@ class ReportGenerator:
             explanations=dict(explanations or {}),
             portfolio=dict(portfolio or {}),
             diversification=dict(diversification or {}),
+            simulation=dict(simulation or {}),
         )
 
     def export_json(self, report: FullRussWorksReport, *, indent: int | None = 2) -> str:

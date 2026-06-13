@@ -13,6 +13,7 @@ from russworks.integrity import IntegrityReport
 from russworks.portfolio import PortfolioProfile
 from russworks.reports import FullRussWorksReport
 from russworks.review import BatterReviewResult
+from russworks.simulation import SimulationResult
 from russworks.slips import SlipPortfolio
 
 
@@ -37,10 +38,12 @@ class DailyRunResult:
     integrity_report_path: str = ""
     portfolio_report_path: str = ""
     diversification_report_path: str = ""
+    simulation_report_path: str = ""
     slate: DailySlate | None = None
     integrity_report: IntegrityReport | None = None
     portfolio_report: PortfolioProfile | None = None
     diversification_report: DiversificationResult | None = None
+    simulation_report: SimulationResult | None = None
     step3_result: BatterReviewResult | None = None
     step4_result: ClusterRanking | None = None
     step5_result: SlipPortfolio | None = None

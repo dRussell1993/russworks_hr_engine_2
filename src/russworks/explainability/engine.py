@@ -12,6 +12,7 @@ from russworks.diversification import DiversificationResult
 from russworks.portfolio import PortfolioProfile
 from russworks.postmortem import PostMortemReport
 from russworks.review import BatterReview, BatterReviewResult
+from russworks.simulation import SimulationResult
 from russworks.slips import Slip, SlipPortfolio
 
 from .models import BatterExplanation, ExplanationFactor, SlipExplanation, TeamExplanation
@@ -120,6 +121,7 @@ class ExplainabilityEngine:
         command_center: Any | None = None,
         portfolio_profile: PortfolioProfile | None = None,
         diversification_result: DiversificationResult | None = None,
+        simulation_result: SimulationResult | None = None,
     ) -> dict[str, Any]:
         batter_explanations = [
             self.explain_batter_review(review).to_dict()
@@ -142,6 +144,7 @@ class ExplainabilityEngine:
             "command_center_context": _command_center_context(command_center),
             "portfolio_context": _portfolio_context(portfolio_profile),
             "diversification_context": _diversification_context(diversification_result),
+            "simulation_context": _simulation_context(simulation_result),
             "summaries": _summaries(batter_explanations, team_explanations, slip_explanations),
         }
 
@@ -256,6 +259,20 @@ def _diversification_context(result: DiversificationResult | None) -> dict[str, 
         "suggested_swaps": list(result.suggested_swaps),
         "exposure_reduction_opportunities": list(result.exposure_reduction_opportunities),
         "diversified_portfolio_alternatives": list(result.diversified_portfolio_alternatives),
+    }
+
+
+def _simulation_context(result: SimulationResult | None) -> dict[str, Any]:
+    if result is None or result.summary is None:
+        return {}
+    return {
+        "simulation_count": result.summary.simulation_count,
+        "expected_hit_rate": result.summary.expected_hit_rate,
+        "expected_roi": result.summary.expected_roi,
+        "drawdown_risk": result.summary.drawdown_risk,
+        "portfolio_volatility": result.summary.portfolio_volatility,
+        "risk_grade": result.summary.risk_grade.value,
+        "notes": list(result.notes),
     }
 
 
