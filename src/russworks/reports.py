@@ -1,11 +1,298 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Dict, Iterable, List
+from dataclasses import asdict, dataclass, field, is_dataclass
+from datetime import date
+from enum import Enum
+import json
+from typing import Any, Dict, Iterable, List, Sequence
 
 from .models import BatterScore, Game, PostMortemEntry, Slip, TeamClusterScore
 from .scoring import calculate_team_clusters, score_game
 from .validation import validate_step2
+
+from russworks.cluster import ClusterRanking, TeamClusterReport
+from russworks.review import BatterReview, BatterReviewResult
+from russworks.slips import Slip as Step5Slip
+from russworks.slips import SlipPortfolio
+
+
+@dataclass(frozen=True)
+class ReportContext:
+    report_date: str
+    games_reviewed: int
+    validation_status: str
+    game_ids: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Step3Report:
+    total_batters_reviewed: int
+    batter_reviews: List[Dict[str, Any]] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Step4Report:
+    team_rankings: List[Dict[str, Any]] = field(default_factory=list)
+    cluster_rankings: List[Dict[str, Any]] = field(default_factory=list)
+    non_superstar_core_rankings: List[Dict[str, Any]] = field(default_factory=list)
+    ypi_rankings: List[Dict[str, Any]] = field(default_factory=list)
+    veteran_bounce_rankings: List[Dict[str, Any]] = field(default_factory=list)
+    catcher_power_rankings: List[Dict[str, Any]] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Step5Report:
+    core_slips: List[Dict[str, Any]] = field(default_factory=list)
+    non_superstar_core_slips: List[Dict[str, Any]] = field(default_factory=list)
+    balanced_slips: List[Dict[str, Any]] = field(default_factory=list)
+    chaos_slips: List[Dict[str, Any]] = field(default_factory=list)
+    contrarian_slips: List[Dict[str, Any]] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class FullRussWorksReport:
+    context: ReportContext
+    step3: Step3Report
+    step4: Step4Report
+    step5: Step5Report
+
+    def to_dict(self) -> Dict[str, Any]:
+        return _json_ready(asdict(self))
+
+    def to_json(self, *, indent: int | None = 2) -> str:
+        return json.dumps(self.to_dict(), indent=indent, sort_keys=True)
+
+
+class ReportGenerator:
+    def generate_step3_report(self, step3_results: BatterReviewResult | None) -> Step3Report:
+        if step3_results is None:
+            return Step3Report(total_batters_reviewed=0, errors=["Step 3 report requires Step 3 results."])
+
+        reviews = sorted(step3_results.reviews, key=lambda review: (review.team, review.lineup_slot, review.batter_name))
+        return Step3Report(
+            total_batters_reviewed=step3_results.reviewed_batters,
+            batter_reviews=[_batter_review_row(review) for review in reviews],
+            errors=list(step3_results.errors),
+        )
+
+    def generate_step4_report(self, cluster_ranking: ClusterRanking | None) -> Step4Report:
+        if cluster_ranking is None:
+            return Step4Report(errors=["Step 4 report requires Step 4 cluster results."])
+
+        ranked_teams = list(cluster_ranking.ranked_teams)
+        return Step4Report(
+            team_rankings=[_team_ranking_row(index, report) for index, report in enumerate(ranked_teams, start=1)],
+            cluster_rankings=[_cluster_ranking_row(index, report) for index, report in enumerate(ranked_teams, start=1)],
+            non_superstar_core_rankings=_special_batter_rankings(ranked_teams, "non_superstar"),
+            ypi_rankings=_special_batter_rankings(ranked_teams, "ypi"),
+            veteran_bounce_rankings=_special_batter_rankings(ranked_teams, "veteran_bounce"),
+            catcher_power_rankings=_special_batter_rankings(ranked_teams, "catcher_power"),
+            errors=list(cluster_ranking.errors),
+        )
+
+    def generate_step5_report(self, portfolio: SlipPortfolio | None) -> Step5Report:
+        if portfolio is None:
+            return Step5Report(errors=["Step 5 report requires Step 5 slip portfolio results."])
+
+        return Step5Report(
+            core_slips=[_slip_row(slip) for slip in portfolio.core_slips],
+            non_superstar_core_slips=[_slip_row(slip) for slip in portfolio.non_superstar_core_slips],
+            balanced_slips=[_slip_row(slip) for slip in portfolio.balanced_slips],
+            chaos_slips=[_slip_row(slip) for slip in portfolio.chaos_slips],
+            contrarian_slips=[_slip_row(slip) for slip in portfolio.contrarian_slips],
+            errors=list(portfolio.errors),
+        )
+
+    def generate_full_report(
+        self,
+        *,
+        context: ReportContext,
+        step3_results: BatterReviewResult | None,
+        cluster_ranking: ClusterRanking | None,
+        slip_portfolio: SlipPortfolio | None,
+    ) -> FullRussWorksReport:
+        return FullRussWorksReport(
+            context=context,
+            step3=self.generate_step3_report(step3_results),
+            step4=self.generate_step4_report(cluster_ranking),
+            step5=self.generate_step5_report(slip_portfolio),
+        )
+
+    def export_json(self, report: FullRussWorksReport, *, indent: int | None = 2) -> str:
+        return report.to_json(indent=indent)
+
+
+def _batter_review_row(review: BatterReview) -> Dict[str, Any]:
+    return {
+        "batter": review.batter_name,
+        "team": review.team,
+        "opponent": review.opponent,
+        "lineup_slot": review.lineup_slot,
+        "hr_pct": review.hr_pct,
+        "russ_score": review.final_russ_score,
+        "tier": _enum_value(review.russ_tier),
+        "tag": review.tag_contribution,
+        "cps": review.cps_contribution,
+        "lstm": review.lstm_score,
+        "pvs": review.pvs_contribution,
+        "environment": review.environment_score,
+        "umpire": review.umpire_score,
+        "weak_spot_collision": {
+            "flag": review.weak_spot_collision_flag,
+            "score": review.weak_spot_collision_score,
+            "confidence": review.weak_spot_collision_confidence,
+            "grade": review.weak_spot_collision_grade,
+        },
+        "ypi": {
+            "flag": review.ypi_flag,
+            "score": review.ypi_score,
+            "confidence": review.ypi_confidence,
+            "grade": review.ypi_grade,
+        },
+        "veteran_bounce": {
+            "flag": review.veteran_bounce_flag,
+            "score": review.veteran_bounce_score,
+            "confidence": review.veteran_bounce_confidence,
+            "grade": review.veteran_bounce_grade,
+        },
+        "catcher_power": {
+            "flag": review.catcher_power_flag,
+            "score": review.catcher_power_score,
+            "confidence": review.catcher_power_confidence,
+            "grade": review.catcher_power_grade,
+        },
+        "pitch_mix": {
+            "score": review.pitch_mix_matchup_score,
+            "confidence": review.pitch_mix_matchup_confidence,
+            "grade": review.pitch_mix_matchup_grade,
+        },
+        "bullpen": {
+            "score": review.bullpen_exposure_score,
+            "confidence": review.bullpen_exposure_confidence,
+            "grade": review.bullpen_exposure_grade,
+        },
+        "park_factor": {
+            "score": review.park_factor_score,
+            "confidence": review.park_factor_confidence,
+            "grade": review.park_factor_grade,
+        },
+        "non_superstar_core": review.non_superstar_core_flag,
+        "notes": list(review.notes),
+    }
+
+
+def _team_ranking_row(rank: int, report: TeamClusterReport) -> Dict[str, Any]:
+    return {
+        "rank": rank,
+        "team": report.team,
+        "opponent": report.opponent,
+        "tag_grade": report.tag_grade,
+        "cps_grade": report.cps_grade,
+        "total_cluster_score": report.total_cluster_score,
+        "cluster_strength_label": report.cluster_strength_label,
+        "cluster_captain": report.cluster_captain,
+        "hidden_cluster_beneficiary": report.hidden_cluster_beneficiary,
+        "batter_count": report.batter_count,
+        "notes": list(report.notes),
+    }
+
+
+def _cluster_ranking_row(rank: int, report: TeamClusterReport) -> Dict[str, Any]:
+    return {
+        **_team_ranking_row(rank, report),
+        "core_bats": list(report.core_bats),
+        "secondary_bats": list(report.secondary_bats),
+        "non_superstar_cluster_bats": list(report.non_superstar_cluster_bats),
+        "ypi_bats": list(report.ypi_bats),
+        "veteran_bounce_bats": list(report.veteran_bounce_bats),
+        "catcher_power_bats": list(report.catcher_power_bats),
+        "pitch_mix_matchup_bats": list(report.pitch_mix_matchup_bats),
+        "bullpen_exposure_bats": list(report.bullpen_exposure_bats),
+        "park_factor_bats": list(report.park_factor_bats),
+    }
+
+
+def _special_batter_rankings(reports: Sequence[TeamClusterReport], family: str) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for report in reports:
+        batters = {
+            "non_superstar": report.non_superstar_cluster_bats,
+            "ypi": report.ypi_bats,
+            "veteran_bounce": report.veteran_bounce_bats,
+            "catcher_power": report.catcher_power_bats,
+        }[family]
+        for batter in batters:
+            rows.append(
+                {
+                    "batter": batter,
+                    "team": report.team,
+                    "opponent": report.opponent,
+                    "cluster_score": report.total_cluster_score,
+                    "tag_grade": report.tag_grade,
+                    "cps_grade": report.cps_grade,
+                    "family": family,
+                    "family_grade": _family_grade(report, family),
+                    "cluster_strength_label": report.cluster_strength_label,
+                }
+            )
+    rows.sort(key=lambda row: row["cluster_score"], reverse=True)
+    for index, row in enumerate(rows, start=1):
+        row["rank"] = index
+    return rows
+
+
+def _family_grade(report: TeamClusterReport, family: str) -> str:
+    if family == "ypi":
+        return report.ypi_grade
+    if family == "veteran_bounce":
+        return report.veteran_bounce_grade
+    if family == "catcher_power":
+        return report.catcher_power_grade
+    return report.cluster_strength_label
+
+
+def _slip_row(slip: Step5Slip) -> Dict[str, Any]:
+    return {
+        "name": slip.name,
+        "slip_type": slip.slip_type,
+        "justification": slip.justification,
+        "metadata": dict(slip.metadata),
+        "legs": [
+            {
+                "batter": leg.batter,
+                "team": leg.team,
+                "tag": leg.tag,
+                "cps": leg.cps,
+                "russ_score": leg.russ_score,
+                "slip_role": leg.slip_role,
+                "justification": leg.justification,
+            }
+            for leg in slip.legs
+        ],
+    }
+
+
+def _json_ready(value: Any) -> Any:
+    if is_dataclass(value):
+        return _json_ready(asdict(value))
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (date,)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_ready(item) for item in value]
+    return value
+
+
+def _enum_value(value: Any) -> Any:
+    return value.value if isinstance(value, Enum) else value
 
 
 def md_table(headers: List[str], rows: List[List[object]]) -> str:
