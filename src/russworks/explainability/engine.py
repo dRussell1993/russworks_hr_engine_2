@@ -8,6 +8,7 @@ import json
 
 from russworks.cluster import ClusterRanking, TeamClusterReport
 from russworks.dashboard import CalibrationDashboard
+from russworks.diversification import DiversificationResult
 from russworks.portfolio import PortfolioProfile
 from russworks.postmortem import PostMortemReport
 from russworks.review import BatterReview, BatterReviewResult
@@ -118,6 +119,7 @@ class ExplainabilityEngine:
         postmortem_report: PostMortemReport | None = None,
         command_center: Any | None = None,
         portfolio_profile: PortfolioProfile | None = None,
+        diversification_result: DiversificationResult | None = None,
     ) -> dict[str, Any]:
         batter_explanations = [
             self.explain_batter_review(review).to_dict()
@@ -139,6 +141,7 @@ class ExplainabilityEngine:
             "postmortem_context": _postmortem_context(postmortem_report),
             "command_center_context": _command_center_context(command_center),
             "portfolio_context": _portfolio_context(portfolio_profile),
+            "diversification_context": _diversification_context(diversification_result),
             "summaries": _summaries(batter_explanations, team_explanations, slip_explanations),
         }
 
@@ -241,6 +244,18 @@ def _portfolio_context(profile: PortfolioProfile | None) -> dict[str, Any]:
         "recommendations": [recommendation.message for recommendation in profile.recommendations],
         "team_exposure": dict(profile.exposure_report.team_exposure),
         "confidence_exposure": dict(profile.exposure_report.confidence_exposure),
+    }
+
+
+def _diversification_context(result: DiversificationResult | None) -> dict[str, Any]:
+    if result is None:
+        return {}
+    return {
+        "target": result.target.value,
+        "recommendations": [recommendation.message for recommendation in result.recommendations],
+        "suggested_swaps": list(result.suggested_swaps),
+        "exposure_reduction_opportunities": list(result.exposure_reduction_opportunities),
+        "diversified_portfolio_alternatives": list(result.diversified_portfolio_alternatives),
     }
 
 

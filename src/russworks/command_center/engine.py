@@ -134,6 +134,7 @@ class CommandCenterEngine:
             optimizer_recommendations=_optimizer_recommendations(optimizer, recommendations),
             confidence_summary=_confidence_summary(daily_run_result),
             portfolio_risk_summary=_portfolio_risk_summary(daily_run_result),
+            diversification_summary=_diversification_summary(daily_run_result),
         )
 
     def execution_summary(
@@ -170,6 +171,7 @@ class CommandCenterEngine:
             exports_generated=_exports_generated(daily_run_result, dashboard, recommendations, trends, optimizer, active_integrity, explanations_path),
             integrity_report_path=_integrity_path(daily_run_result, active_integrity),
             portfolio_report_path=daily_run_result.portfolio_report_path if daily_run_result else "",
+            diversification_report_path=daily_run_result.diversification_report_path if daily_run_result else "",
             errors=errors,
             warnings=warnings,
         )
@@ -351,6 +353,8 @@ def _exports_generated(
         exports.append("data/integrity/integrity_report.json")
     if daily_run_result and daily_run_result.portfolio_report_path:
         exports.append(daily_run_result.portfolio_report_path)
+    if daily_run_result and daily_run_result.diversification_report_path:
+        exports.append(daily_run_result.diversification_report_path)
     if explanations_path:
         exports.append(explanations_path)
     return exports
@@ -396,6 +400,18 @@ def _portfolio_risk_summary(daily_run_result: DailyRunResult | None) -> dict[str
         "recommendation_count": len(profile.recommendations),
         "total_slips": profile.exposure_report.total_slips,
         "total_legs": profile.exposure_report.total_legs,
+    }
+
+
+def _diversification_summary(daily_run_result: DailyRunResult | None) -> dict[str, Any]:
+    if daily_run_result is None or daily_run_result.diversification_report is None:
+        return {}
+    result = daily_run_result.diversification_report
+    return {
+        "target": result.target.value,
+        "recommendation_count": len(result.recommendations),
+        "suggested_swap_count": len(result.suggested_swaps),
+        "alternative_count": len(result.diversified_portfolio_alternatives),
     }
 
 
