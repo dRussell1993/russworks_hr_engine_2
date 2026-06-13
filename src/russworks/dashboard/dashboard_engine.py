@@ -80,6 +80,23 @@ class CalibrationDashboardEngine:
         output_path.write_text(dashboard.to_json(), encoding="utf-8")
         return output_path
 
+    def build_weight_recommendations(
+        self,
+        dashboard: CalibrationDashboard,
+        *,
+        calibration_result: CalibrationResult | None = None,
+        backtest_result: BacktestResult | None = None,
+        current_weights=None,
+    ):
+        from russworks.recommendations import WeightRecommendationEngine
+
+        return WeightRecommendationEngine().build_recommendations(
+            calibration_result=calibration_result,
+            dashboard=dashboard,
+            backtest_result=backtest_result,
+            current_weights=current_weights,
+        )
+
 
 def build_calibration_dashboard(
     calibration_result: CalibrationResult | None = None,

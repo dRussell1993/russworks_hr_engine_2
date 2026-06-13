@@ -110,6 +110,16 @@ class HistoricalBacktestEngine:
             backtest_result=result,
         )
 
+    def build_weight_recommendations(self, result: BacktestResult, *, calibration_result=None, dashboard=None, current_weights=None):
+        from russworks.recommendations import WeightRecommendationEngine
+
+        return WeightRecommendationEngine().build_recommendations(
+            calibration_result=calibration_result,
+            dashboard=dashboard,
+            backtest_result=result,
+            current_weights=current_weights,
+        )
+
     def _load_slate(self, day: str, request: BacktestRequest) -> DailySlate:
         if self._slate_loader is not None:
             return self._slate_loader(day)

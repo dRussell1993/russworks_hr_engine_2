@@ -102,6 +102,23 @@ class FormulaCalibrationEngine:
             backtest_result=backtest_result,
         )
 
+    def build_weight_recommendations(
+        self,
+        result: CalibrationResult,
+        *,
+        dashboard=None,
+        backtest_result: BacktestResult | None = None,
+        current_weights=None,
+    ):
+        from russworks.recommendations import WeightRecommendationEngine
+
+        return WeightRecommendationEngine().build_recommendations(
+            calibration_result=result,
+            dashboard=dashboard,
+            backtest_result=backtest_result,
+            current_weights=current_weights,
+        )
+
 
 def calibrate_formula(
     step3_results: BatterReviewResult | Sequence[BatterReviewResult] | Sequence[BatterReview],
