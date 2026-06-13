@@ -13,6 +13,9 @@ class SlipLeg:
     russ_score: float
     slip_role: str
     justification: str
+    confidence_score: float = 0.0
+    confidence_grade: str = "Very Low"
+    confidence_reasoning: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,9 @@ class Slip:
     legs: List[SlipLeg]
     justification: str
     metadata: dict[str, str] = field(default_factory=dict)
+    confidence_score: float = 0.0
+    confidence_grade: str = "Very Low"
+    confidence_reasoning: List[str] = field(default_factory=list)
 
     @property
     def batters(self) -> List[str]:

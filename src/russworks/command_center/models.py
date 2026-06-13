@@ -27,6 +27,7 @@ class FormulaHealthReport:
     modules_heating_up: list[str] = field(default_factory=list)
     modules_cooling_off: list[str] = field(default_factory=list)
     optimizer_recommendations: list[dict[str, Any]] = field(default_factory=list)
+    confidence_summary: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

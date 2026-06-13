@@ -48,6 +48,10 @@ class BatterReview:
     park_factor_score: float = 0.0
     park_factor_confidence: float = 0.0
     park_factor_grade: str = "Neutral"
+    confidence_score: float = 0.0
+    confidence_grade: str = "Very Low"
+    confidence_reasoning: List[str] = field(default_factory=list)
+    confidence_breakdown: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

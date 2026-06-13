@@ -313,6 +313,9 @@ def _leg(report: TeamClusterReport, batter: str, role: str, justification: str) 
         russ_score=report.total_cluster_score,
         slip_role=role,
         justification=justification,
+        confidence_score=report.confidence_score,
+        confidence_grade=report.confidence_grade,
+        confidence_reasoning=list(report.confidence_reasoning),
     )
 
 
@@ -350,7 +353,12 @@ def _slip(
             "bullpen_exposure_score": f"{cluster.bullpen_exposure_score:.2f}",
             "park_factor_grade": cluster.park_factor_grade,
             "park_factor_score": f"{cluster.park_factor_score:.2f}",
+            "confidence_grade": cluster.confidence_grade,
+            "confidence_score": f"{cluster.confidence_score:.1f}",
         },
+        confidence_score=cluster.confidence_score,
+        confidence_grade=cluster.confidence_grade,
+        confidence_reasoning=list(cluster.confidence_reasoning),
     )
 
 
