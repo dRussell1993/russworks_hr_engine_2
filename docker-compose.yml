@@ -1,0 +1,74 @@
+services:
+  russworks:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      RUSSWORKS_RUNTIME_MODE: ${RUSSWORKS_RUNTIME_MODE:-local}
+      RUSSWORKS_PROVIDER_MODE: ${RUSSWORKS_PROVIDER_MODE:-csv}
+      RUSSWORKS_RUN_DATE: ${RUSSWORKS_RUN_DATE:-}
+      RUSSWORKS_DATA_ROOT: /app/data/daily
+      RUSSWORKS_OUTPUT_ROOT: /app/data/outputs
+      RUSSWORKS_CONFIG_PATH: /app/config/russworks_config.yaml
+      RUSSWORKS_REPORT_VOLUME: /app/data
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    command: ["python", "-m", "russworks.deployment.runtime"]
+
+  russworks-validate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    command: ["python", "-m", "russworks.deployment.runtime", "--validate-only"]
+
+  russworks-daily:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    command:
+      - python
+      - -m
+      - russworks.run
+      - --date
+      - ${RUSSWORKS_RUN_DATE:?Set RUSSWORKS_RUN_DATE=YYYY-MM-DD}
+      - --data-root
+      - /app/data/daily
+      - --output-root
+      - /app/data/outputs
+      - --provider-mode
+      - ${RUSSWORKS_PROVIDER_MODE:-csv}
+      - --config-path
+      - /app/config/russworks_config.yaml
+
+  russworks-postmortem:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    command:
+      - python
+      - -m
+      - russworks.postmortem.run
+      - --date
+      - ${RUSSWORKS_RUN_DATE:?Set RUSSWORKS_RUN_DATE=YYYY-MM-DD}
