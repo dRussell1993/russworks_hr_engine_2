@@ -75,6 +75,7 @@ def test_missing_lineup_positions_are_flagged_without_dropping_review_required()
     assert queue.total_batters == 18
     assert queue.validated_batters == 17
     assert queue.missing_data["lineup_position"] == ["Missing Slot"]
+    assert "TEX lineup slot 1" in queue.missing_data["missing_lineup_slot"]
     assert any(batter.name == "Missing Slot" for batter in queue.review_required)
 
 
@@ -112,3 +113,37 @@ def test_no_shortcuts_gate_can_raise_validation_error():
 
     assert "Step 2 blocked" in message
     assert "confirmed_lineup" in message
+
+
+def test_step2_detects_duplicate_lineup_slots_and_duplicate_batters():
+    game = _complete_game()
+    game.home_team.batters[1] = BatterIntake("KC Batter 1", "KC", lineup_slot=1, confirmed=True)
+
+    queue = validate_step2_intake(game)
+
+    assert not queue.is_valid
+    assert "KC lineup slot 1: KC Batter 1, KC Batter 1" in queue.missing_data["duplicate_lineup_slot"]
+    assert "KC duplicate batter KC Batter 1" in queue.missing_data["duplicate_batter"]
+    assert "KC lineup slot 2" in queue.missing_data["missing_lineup_slot"]
+
+
+def test_step2_detects_invalid_lineup_positions():
+    game = _complete_game()
+    game.away_team.batters[8] = BatterIntake("Bad Slot", "TEX", lineup_slot=10, confirmed=True)
+
+    queue = validate_step2_intake(game)
+
+    assert not queue.is_valid
+    assert queue.validated_batters == 17
+    assert "Bad Slot lineup slot 10 is invalid; expected 1-9" in queue.missing_data["invalid_lineup_position"]
+    assert "TEX lineup slot 9" in queue.missing_data["missing_lineup_slot"]
+
+
+def test_step2_detects_team_and_environment_mismatches():
+    game = _complete_game()
+    game.away_team.batters[0] = BatterIntake("Wrong Team Bat", "KC", lineup_slot=1, confirmed=True)
+
+    queue = validate_step2_intake(game)
+
+    assert not queue.is_valid
+    assert "Wrong Team Bat is listed under TEX but has batter team KC" in queue.missing_data["team_opponent_mismatch"]

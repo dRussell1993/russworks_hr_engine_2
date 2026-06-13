@@ -5,7 +5,8 @@ from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import date
 from enum import Enum
 import json
-from typing import Any, Dict, Iterable, List, Sequence
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from .models import BatterScore, Game, PostMortemEntry, Slip, TeamClusterScore
 from .scoring import calculate_team_clusters, score_game
@@ -15,6 +16,11 @@ from russworks.cluster import ClusterRanking, TeamClusterReport
 from russworks.review import BatterReview, BatterReviewResult
 from russworks.slips import Slip as Step5Slip
 from russworks.slips import SlipPortfolio
+
+
+REPORT_SCHEMA_VERSION = "1.0"
+LEGACY_REPORT_SCHEMA_VERSION = "legacy"
+SUPPORTED_REPORT_SCHEMA_VERSIONS = {REPORT_SCHEMA_VERSION, LEGACY_REPORT_SCHEMA_VERSION}
 
 
 @dataclass(frozen=True)
@@ -60,6 +66,7 @@ class FullRussWorksReport:
     step3: Step3Report
     step4: Step4Report
     step5: Step5Report
+    schema_version: str = REPORT_SCHEMA_VERSION
 
     def to_dict(self) -> Dict[str, Any]:
         return _json_ready(asdict(self))
@@ -125,6 +132,28 @@ class ReportGenerator:
 
     def export_json(self, report: FullRussWorksReport, *, indent: int | None = 2) -> str:
         return report.to_json(indent=indent)
+
+
+def load_full_report_json(path: str | Path) -> Dict[str, Any]:
+    with Path(path).open("r", encoding="utf-8") as handle:
+        return load_full_report_payload(json.load(handle))
+
+
+def load_full_report_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError("Russ-Works report payload must be a JSON object.")
+
+    schema_version = str(payload.get("schema_version", LEGACY_REPORT_SCHEMA_VERSION))
+    if schema_version not in SUPPORTED_REPORT_SCHEMA_VERSIONS:
+        supported = ", ".join(sorted(SUPPORTED_REPORT_SCHEMA_VERSIONS))
+        raise ValueError(f"Unsupported Russ-Works report schema_version {schema_version}; supported versions: {supported}.")
+
+    normalized = dict(payload)
+    normalized["schema_version"] = schema_version
+    for section in ("context", "step3", "step4", "step5"):
+        if not isinstance(normalized.get(section), Mapping):
+            raise ValueError(f"Generated report missing {section} section.")
+    return normalized
 
 
 def _batter_review_row(review: BatterReview) -> Dict[str, Any]:

@@ -5,11 +5,13 @@ from russworks.cluster import ClusterRanking, TeamClusterReport
 from russworks.models import RussTier
 from russworks.reports import (
     FullRussWorksReport,
+    REPORT_SCHEMA_VERSION,
     ReportContext,
     ReportGenerator,
     Step3Report,
     Step4Report,
     Step5Report,
+    load_full_report_payload,
 )
 from russworks.review import BatterReview, BatterReviewResult
 from russworks.slips import Slip, SlipLeg, SlipPortfolio
@@ -243,9 +245,49 @@ def test_full_report_exports_json_with_metadata():
 
     payload = json.loads(generator.export_json(report))
 
+    assert payload["schema_version"] == REPORT_SCHEMA_VERSION
     assert payload["context"]["report_date"] == "2026-06-13"
     assert payload["context"]["games_reviewed"] == 1
     assert payload["context"]["validation_status"] == "valid"
     assert len(payload["step3"]["batter_reviews"]) == 4
     assert payload["step4"]["team_rankings"][0]["team"] == "TEX"
     assert payload["step5"]["core_slips"][0]["metadata"]["team"] == "TEX"
+
+
+def test_report_loader_accepts_versioned_and_legacy_payloads():
+    generator = ReportGenerator()
+    report = generator.generate_full_report(
+        context=_context(),
+        step3_results=_step3_results(),
+        cluster_ranking=_cluster_ranking(),
+        slip_portfolio=_portfolio(),
+    )
+    payload = json.loads(generator.export_json(report))
+
+    versioned = load_full_report_payload(payload)
+    legacy_payload = dict(payload)
+    legacy_payload.pop("schema_version")
+    legacy = load_full_report_payload(legacy_payload)
+
+    assert versioned["schema_version"] == REPORT_SCHEMA_VERSION
+    assert legacy["schema_version"] == "legacy"
+    assert legacy["step3"]["total_batters_reviewed"] == 4
+
+
+def test_report_loader_rejects_unknown_schema_versions():
+    payload = {
+        "schema_version": "99.0",
+        "context": {},
+        "step3": {},
+        "step4": {},
+        "step5": {},
+    }
+
+    try:
+        load_full_report_payload(payload)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+    assert "Unsupported Russ-Works report schema_version" in message

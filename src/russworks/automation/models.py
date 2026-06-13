@@ -8,8 +8,10 @@ from typing import Any
 
 from russworks.calibration import CalibrationResult
 from russworks.dashboard import CalibrationDashboard
+from russworks.optimizer import OptimizationResult
 from russworks.postmortem import PostMortemReport
 from russworks.recommendations import RecommendationReport
+from russworks.trends import TrendSummary
 
 
 @dataclass(frozen=True)
@@ -20,6 +22,8 @@ class DailyPostMortemRun:
     postmortem_output_dir: str = "data/postmortem"
     dashboard_output_dir: str = "data/dashboard"
     recommendations_output_dir: str = "data/recommendations"
+    trends_output_dir: str = "data/trends"
+    optimizer_output_dir: str = "data/optimizer"
     force: bool = False
 
 
@@ -34,11 +38,15 @@ class PostMortemRunResult:
     calibration_report_path: str = ""
     dashboard_path: str = ""
     recommendations_path: str = ""
+    trends_path: str = ""
+    optimizer_path: str = ""
     metadata_path: str = ""
     postmortem_report: PostMortemReport | None = None
     calibration_result: CalibrationResult | None = None
     dashboard: CalibrationDashboard | None = None
     recommendations: RecommendationReport | None = None
+    trends: TrendSummary | None = None
+    optimizer: OptimizationResult | None = None
     messages: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 

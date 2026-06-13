@@ -37,6 +37,16 @@ def main(argv: list[str] | None = None) -> int:
         default="data/recommendations",
         help="Directory for recommendations.json.",
     )
+    parser.add_argument(
+        "--trends-dir",
+        default="data/trends",
+        help="Directory for trends.json.",
+    )
+    parser.add_argument(
+        "--optimizer-dir",
+        default="data/optimizer",
+        help="Directory for optimizer_report.json.",
+    )
     parser.add_argument("--auto", action="store_true", help="After optional CSV ingestion, run the automated post-mortem.")
     parser.add_argument("--force", action="store_true", help="Re-run even if metadata shows the date was already processed.")
     args = parser.parse_args(argv)
@@ -61,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
         postmortem_output_dir=args.output_dir,
         dashboard_output_dir=args.dashboard_dir,
         recommendations_output_dir=args.recommendations_dir,
+        trends_output_dir=args.trends_dir,
+        optimizer_output_dir=args.optimizer_dir,
         force=args.force,
     )
     result = AutoPostMortemRunner().run_postmortem(args.date, request)
