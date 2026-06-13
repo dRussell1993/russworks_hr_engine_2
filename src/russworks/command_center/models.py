@@ -48,6 +48,7 @@ class CommandCenterReport:
     slate_status: DailySlateStatus
     formula_health: FormulaHealthReport
     execution_summary: DailyExecutionSummary
+    explanations_path: str = ""
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 

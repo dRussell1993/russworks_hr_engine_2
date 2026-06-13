@@ -6,6 +6,7 @@ from typing import Callable, Sequence
 from russworks.cluster import ClusterRanking, generate_cluster_report
 from russworks.configuration import ConfigLoader, RussWorksUserConfig
 from russworks.data import CSVDataProvider, DailySlate, load_daily_slate as load_slate_from_provider
+from russworks.explainability import ExplainabilityEngine
 from russworks.integrity import IntegrityEngine, IntegrityReport
 from russworks.intake import ReviewQueue, validate_step2_intake
 from russworks.reports import FullRussWorksReport, ReportGenerator
@@ -156,11 +157,17 @@ class RussWorksPipeline:
         context = slate.to_report_context()
         if self._active_config is not None:
             context = _context_with_config(context, self._active_config)
+        explanations = ExplainabilityEngine().generate_explanations(
+            step3_results=step3_result,
+            cluster_ranking=step4_result,
+            slip_portfolio=step5_result,
+        )
         return self._report_generator.generate_full_report(
             context=context,
             step3_results=step3_result,
             cluster_ranking=step4_result,
             slip_portfolio=step5_result,
+            explanations=explanations,
         )
 
     def save_outputs(self, request: DailyRunRequest, report: FullRussWorksReport) -> tuple[Path, Path]:
@@ -168,6 +175,8 @@ class RussWorksPipeline:
         output_dir.mkdir(parents=True, exist_ok=True)
         report_path = output_dir / "russworks_full_report.json"
         report_path.write_text(report.to_json(), encoding="utf-8")
+        if report.explanations:
+            ExplainabilityEngine().export_json(report.explanations, Path(request.output_root).parent / "explanations")
         return output_dir, report_path
 
     def save_integrity_report(self, request: DailyRunRequest, report: IntegrityReport) -> tuple[Path, Path]:

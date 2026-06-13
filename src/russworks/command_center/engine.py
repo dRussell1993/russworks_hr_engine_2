@@ -33,6 +33,7 @@ class CommandCenterEngine:
         integrity_report: IntegrityReport | None = None,
         provider_health: Iterable[ProviderHealth | Mapping[str, Any]] = (),
         weights: ScoringWeights | Mapping[str, Any] | None = None,
+        explanations_path: str = "",
     ) -> CommandCenterReport:
         active_slate = slate or (daily_run_result.slate if daily_run_result else None)
         report_date = date or _date_from_inputs(daily_run_result, active_slate)
@@ -57,6 +58,7 @@ class CommandCenterEngine:
             trends=trends,
             optimizer=optimizer,
             integrity_report=integrity_report,
+            explanations_path=explanations_path,
         )
         errors = list(execution_summary.errors)
         warnings = list(execution_summary.warnings)
@@ -71,6 +73,7 @@ class CommandCenterEngine:
             slate_status=slate_status,
             formula_health=formula_health,
             execution_summary=execution_summary,
+            explanations_path=explanations_path,
             errors=errors,
             warnings=warnings,
         )
@@ -138,6 +141,7 @@ class CommandCenterEngine:
         trends: TrendSummary | None = None,
         optimizer: OptimizationResult | None = None,
         integrity_report: IntegrityReport | None = None,
+        explanations_path: str = "",
     ) -> DailyExecutionSummary:
         errors = list(daily_run_result.errors if daily_run_result else [])
         warnings: list[str] = []
@@ -159,7 +163,7 @@ class CommandCenterEngine:
             step4_status=_step_status(daily_run_result.step4_result if daily_run_result else None),
             step5_status=_step_status(daily_run_result.step5_result if daily_run_result else None),
             reports_generated=_reports_generated(daily_run_result),
-            exports_generated=_exports_generated(daily_run_result, dashboard, recommendations, trends, optimizer, active_integrity),
+            exports_generated=_exports_generated(daily_run_result, dashboard, recommendations, trends, optimizer, active_integrity, explanations_path),
             integrity_report_path=_integrity_path(daily_run_result, active_integrity),
             errors=errors,
             warnings=warnings,
@@ -323,6 +327,7 @@ def _exports_generated(
     trends: TrendSummary | None,
     optimizer: OptimizationResult | None,
     integrity_report: IntegrityReport | None,
+    explanations_path: str = "",
 ) -> list[str]:
     exports = []
     if daily_run_result and daily_run_result.report_json_path:
@@ -339,6 +344,8 @@ def _exports_generated(
         exports.append(daily_run_result.integrity_report_path)
     elif integrity_report:
         exports.append("data/integrity/integrity_report.json")
+    if explanations_path:
+        exports.append(explanations_path)
     return exports
 
 

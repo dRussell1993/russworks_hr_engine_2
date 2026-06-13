@@ -50,6 +50,7 @@ class CalibrationDashboard:
     archetype_success_rates: list[ArchetypePerformance] = field(default_factory=list)
     trend_summaries: list[str] = field(default_factory=list)
     integrity_summaries: list[str] = field(default_factory=list)
+    explanation_summaries: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     @property
