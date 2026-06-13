@@ -11,7 +11,6 @@ from russworks.data import DailySlate
 from russworks.integrity import IntegrityReport
 from russworks.intake import validate_step2_intake
 from russworks.optimizer import OptimizationResult
-from russworks.pipeline import DailyRunResult
 from russworks.providers import ProviderHealth
 from russworks.recommendations import RecommendationReport
 from russworks.trends import TrendSummary
@@ -20,6 +19,7 @@ from .models import CommandCenterReport, DailyExecutionSummary, DailySlateStatus
 
 
 if TYPE_CHECKING:
+    from russworks.pipeline.models import DailyRunResult
     from russworks.scheduler import SchedulerStatus
 
 

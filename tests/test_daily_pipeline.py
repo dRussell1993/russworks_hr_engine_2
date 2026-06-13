@@ -178,6 +178,12 @@ def test_daily_pipeline_runs_all_steps_and_saves_report_json():
         assert payload["context"]["game_ids"] == ["tex-kc-1"]
         assert payload["explanations"]["batter_explanations"]
         assert (output_root.parent / "explanations" / "explanations.json").exists()
+        assert Path(result.dashboard_path) == output_root.parent / "dashboard" / "dashboard.json"
+        assert Path(result.command_center_path) == output_root.parent / "command_center" / "command_center.json"
+        assert Path(result.web_dashboard_path) == output_root.parent / "web" / "dashboard_data.json"
+        assert Path(result.dashboard_path).exists()
+        assert Path(result.command_center_path).exists()
+        assert Path(result.web_dashboard_path).exists()
 
 
 def test_daily_pipeline_blocks_when_step2_validation_is_incomplete():
@@ -193,6 +199,7 @@ def test_daily_pipeline_blocks_when_step2_validation_is_incomplete():
         assert "Step 2 validation incomplete" in result.errors[0]
         assert result.step3_result is None
         assert result.report_json_path == ""
+        assert Path(result.command_center_path).exists()
 
 
 def test_top_level_run_daily_pipeline_uses_csv_data_connectors():
@@ -207,6 +214,9 @@ def test_top_level_run_daily_pipeline_uses_csv_data_connectors():
         assert result.success
         assert Path(result.report_json_path).exists()
         assert result.total_batters_reviewed == 18
+        assert Path(result.dashboard_path).exists()
+        assert Path(result.command_center_path).exists()
+        assert Path(result.web_dashboard_path).exists()
 
 
 def test_cli_runs_pipeline_and_returns_success_code():
@@ -220,3 +230,6 @@ def test_cli_runs_pipeline_and_returns_success_code():
 
         assert exit_code == 0
         assert (output_root / "2026-06-13" / "russworks_full_report.json").exists()
+        assert (output_root.parent / "dashboard" / "dashboard.json").exists()
+        assert (output_root.parent / "command_center" / "command_center.json").exists()
+        assert (output_root.parent / "web" / "dashboard_data.json").exists()

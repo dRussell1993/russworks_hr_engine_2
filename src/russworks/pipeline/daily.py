@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from russworks.cluster import ClusterRanking, generate_cluster_report
+from russworks.command_center import CommandCenterEngine, CommandCenterReport
 from russworks.configuration import ConfigLoader, RussWorksUserConfig
+from russworks.dashboard import CalibrationDashboard, CalibrationDashboardEngine
 from russworks.data import CSVDataProvider, DailySlate, load_daily_slate as load_slate_from_provider
 from russworks.diversification import DiversificationEngine, DiversificationResult
 from russworks.explainability import ExplainabilityEngine
@@ -16,6 +18,7 @@ from russworks.review import BatterReviewResult, review_all_batters
 from russworks.self_learning import SelfLearningEngine, SelfLearningReport
 from russworks.simulation import MonteCarloEngine, SimulationResult
 from russworks.slips import SlipPortfolio, generate_slip_portfolio
+from russworks.web import OperatorDashboardBuilder
 from russworks.providers import (
     BallparkProvider,
     BaseballSavantProvider,
@@ -35,6 +38,9 @@ class RussWorksPipeline:
         self._slate_loader = slate_loader
         self._report_generator = ReportGenerator()
         self._integrity_engine = IntegrityEngine()
+        self._dashboard_engine = CalibrationDashboardEngine()
+        self._command_center_engine = CommandCenterEngine()
+        self._web_dashboard_builder = OperatorDashboardBuilder()
         self._portfolio_engine = PortfolioEngine()
         self._diversification_engine = DiversificationEngine()
         self._simulation_engine = MonteCarloEngine()
@@ -54,7 +60,7 @@ class RussWorksPipeline:
             if missing_data:
                 errors = _missing_data_errors(missing_data)
                 _, integrity_path = self.save_integrity_report(run_request, integrity_report)
-                return DailyRunResult(
+                result = DailyRunResult(
                     request=run_request,
                     success=False,
                     validation_status="invalid",
@@ -64,11 +70,12 @@ class RussWorksPipeline:
                     integrity_report_path=str(integrity_path),
                     errors=errors,
                 )
+                return self.export_failure_runtime_outputs(run_request, result, integrity_report)
 
             step3 = self.run_step3(slate)
             if not step3.success:
                 _, integrity_path = self.save_integrity_report(run_request, integrity_report)
-                return DailyRunResult(
+                result = DailyRunResult(
                     request=run_request,
                     success=False,
                     validation_status="valid",
@@ -79,6 +86,7 @@ class RussWorksPipeline:
                     total_batters_reviewed=step3.reviewed_batters,
                     errors=list(step3.errors),
                 )
+                return self.export_failure_runtime_outputs(run_request, result, integrity_report)
 
             step4 = self.run_step4(step3)
             step5 = self.run_step5(step4)
@@ -94,7 +102,7 @@ class RussWorksPipeline:
             _, simulation_path = self.save_simulation_report(run_request, simulation)
             _, self_learning_path = self.save_self_learning_report(run_request, self_learning)
             errors = [*step4.errors, *step5.errors]
-            return DailyRunResult(
+            result = DailyRunResult(
                 request=run_request,
                 success=not errors,
                 validation_status="valid",
@@ -118,13 +126,17 @@ class RussWorksPipeline:
                 full_report=report,
                 errors=errors,
             )
+            if errors:
+                return self.export_failure_runtime_outputs(run_request, result, integrity_report)
+            return self.export_success_runtime_outputs(run_request, result, integrity_report, portfolio, diversification, simulation, self_learning)
         except Exception as exc:
-            return DailyRunResult(
+            result = DailyRunResult(
                 request=run_request,
                 success=False,
                 validation_status="error",
                 errors=[str(exc)],
             )
+            return self.export_failure_runtime_outputs(run_request, result, None)
 
     def load_daily_slate(self, request: DailyRunRequest) -> DailySlate:
         if self._slate_loader is not None:
@@ -247,6 +259,81 @@ class RussWorksPipeline:
         self_learning_dir = Path(request.output_root).parent / "self_learning"
         return self_learning_dir, self._self_learning_engine.export_json(report, self_learning_dir)
 
+    def export_success_runtime_outputs(
+        self,
+        request: DailyRunRequest,
+        result: DailyRunResult,
+        integrity_report: IntegrityReport,
+        portfolio: PortfolioProfile,
+        diversification: DiversificationResult,
+        simulation: SimulationResult,
+        self_learning: SelfLearningReport,
+    ) -> DailyRunResult:
+        dashboard = self._dashboard_engine.build_dashboard(
+            integrity_report=integrity_report,
+            portfolio_profile=portfolio,
+            diversification_result=diversification,
+            simulation_result=simulation,
+            self_learning_report=self_learning,
+        )
+        dashboard_path = self.save_dashboard(request, dashboard)
+        command_center = self._command_center_engine.build_report(
+            date=request.date,
+            daily_run_result=result,
+            dashboard=dashboard,
+            integrity_report=integrity_report,
+            explanations_path=str(Path(request.output_root).parent / "explanations" / "explanations.json"),
+        )
+        command_center_path = self.save_command_center(request, command_center)
+        web_dashboard_path = self.save_web_dashboard(request, result.full_report, dashboard, command_center)
+        return _replace_result(
+            result,
+            dashboard_path=str(dashboard_path),
+            command_center_path=str(command_center_path),
+            web_dashboard_path=str(web_dashboard_path),
+        )
+
+    def export_failure_runtime_outputs(
+        self,
+        request: DailyRunRequest,
+        result: DailyRunResult,
+        integrity_report: IntegrityReport | None,
+    ) -> DailyRunResult:
+        command_center = self._command_center_engine.build_report(
+            date=request.date,
+            daily_run_result=result,
+            integrity_report=integrity_report,
+        )
+        command_center_path = self.save_command_center(request, command_center)
+        return _replace_result(
+            result,
+            command_center_path=str(command_center_path),
+            errors=[*result.errors, *command_center.errors],
+        )
+
+    def save_dashboard(self, request: DailyRunRequest, dashboard: CalibrationDashboard) -> Path:
+        dashboard_dir = Path(request.output_root).parent / "dashboard"
+        return self._dashboard_engine.export_json(dashboard, dashboard_dir)
+
+    def save_command_center(self, request: DailyRunRequest, command_center: CommandCenterReport) -> Path:
+        command_center_dir = Path(request.output_root).parent / "command_center"
+        return self._command_center_engine.export_json(command_center, command_center_dir)
+
+    def save_web_dashboard(
+        self,
+        request: DailyRunRequest,
+        report: FullRussWorksReport | None,
+        dashboard: CalibrationDashboard,
+        command_center: CommandCenterReport,
+    ) -> Path:
+        web_dir = Path(request.output_root).parent / "web"
+        view = self._web_dashboard_builder.build_dashboard(
+            report=report,
+            dashboard=dashboard,
+            command_center=command_center,
+        )
+        return self._web_dashboard_builder.export_json(view, web_dir)
+
 
 def run_daily_pipeline(
     date: str,
@@ -300,3 +387,36 @@ def _context_with_config(context, user_config: RussWorksUserConfig):
         notes=[*context.notes, f"config_source={user_config.source_path}", f"risk_profile={user_config.risk_profile.profile}"],
         active_config=user_config.to_dict(),
     )
+
+
+def _replace_result(result: DailyRunResult, **changes) -> DailyRunResult:
+    values = {
+        "request": result.request,
+        "success": result.success,
+        "validation_status": result.validation_status,
+        "missing_data": result.missing_data,
+        "total_batters_reviewed": result.total_batters_reviewed,
+        "output_dir": result.output_dir,
+        "report_json_path": result.report_json_path,
+        "integrity_report_path": result.integrity_report_path,
+        "portfolio_report_path": result.portfolio_report_path,
+        "diversification_report_path": result.diversification_report_path,
+        "simulation_report_path": result.simulation_report_path,
+        "self_learning_report_path": result.self_learning_report_path,
+        "dashboard_path": result.dashboard_path,
+        "command_center_path": result.command_center_path,
+        "web_dashboard_path": result.web_dashboard_path,
+        "slate": result.slate,
+        "integrity_report": result.integrity_report,
+        "portfolio_report": result.portfolio_report,
+        "diversification_report": result.diversification_report,
+        "simulation_report": result.simulation_report,
+        "self_learning_report": result.self_learning_report,
+        "step3_result": result.step3_result,
+        "step4_result": result.step4_result,
+        "step5_result": result.step5_result,
+        "full_report": result.full_report,
+        "errors": result.errors,
+    }
+    values.update(changes)
+    return DailyRunResult(**values)

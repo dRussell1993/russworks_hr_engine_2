@@ -4,12 +4,11 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime
 import json
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
-from russworks.command_center import CommandCenterReport
+from russworks.command_center.models import CommandCenterReport
 from russworks.dashboard import CalibrationDashboard
 from russworks.reports import FullRussWorksReport, load_full_report_payload
-from russworks.scheduler import SchedulerStatus
 
 from .models import (
     BatterView,
@@ -20,6 +19,9 @@ from .models import (
     SlipView,
     TeamView,
 )
+
+if TYPE_CHECKING:
+    from russworks.scheduler.models import SchedulerStatus
 
 
 class OperatorDashboardBuilder:
