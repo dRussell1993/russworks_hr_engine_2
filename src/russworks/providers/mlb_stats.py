@@ -269,6 +269,15 @@ class DailySlateProvider:
             metadata["provider_errors"] = "|".join(f"{result.provider}:{';'.join(result.errors)}" for result in failed)
         return metadata
 
+    def integrity_report(self, slate: DailySlate):
+        from russworks.integrity import IntegrityEngine
+
+        return IntegrityEngine().validate_daily_slate(
+            slate,
+            provider_results=self.results,
+            provider_health=self.health_statuses,
+        )
+
     def _fetch_with_fallback(self, dataset: str, date: str) -> ProviderResult:
         errors: list[str] = []
         for provider in self.providers:

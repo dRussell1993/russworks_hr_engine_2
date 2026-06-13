@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 from russworks.config.weights import ScoringWeights
 from russworks.dashboard import CalibrationDashboard
 from russworks.data import DailySlate
+from russworks.integrity import IntegrityReport
 from russworks.intake import validate_step2_intake
 from russworks.optimizer import OptimizationResult
 from russworks.pipeline import DailyRunResult
@@ -29,6 +30,7 @@ class CommandCenterEngine:
         recommendations: RecommendationReport | None = None,
         trends: TrendSummary | None = None,
         optimizer: OptimizationResult | None = None,
+        integrity_report: IntegrityReport | None = None,
         provider_health: Iterable[ProviderHealth | Mapping[str, Any]] = (),
         weights: ScoringWeights | Mapping[str, Any] | None = None,
     ) -> CommandCenterReport:
@@ -39,6 +41,7 @@ class CommandCenterEngine:
             active_slate,
             daily_run_result=daily_run_result,
             provider_health=provider_health,
+            integrity_report=integrity_report,
         )
         formula_health = self.formula_health(
             weights=weights,
@@ -53,11 +56,14 @@ class CommandCenterEngine:
             recommendations=recommendations,
             trends=trends,
             optimizer=optimizer,
+            integrity_report=integrity_report,
         )
         errors = list(execution_summary.errors)
         warnings = list(execution_summary.warnings)
         if slate_status.validation_failures:
             errors.append("Step 2 validation failures are present in the daily slate.")
+        if slate_status.integrity_alerts.get("ERROR", 0) or slate_status.integrity_alerts.get("CRITICAL", 0):
+            errors.append("Data integrity errors are present in the daily slate.")
         if active_slate is None:
             warnings.append("No daily slate was provided to the command center.")
         return CommandCenterReport(
@@ -76,7 +82,9 @@ class CommandCenterEngine:
         *,
         daily_run_result: DailyRunResult | None = None,
         provider_health: Iterable[ProviderHealth | Mapping[str, Any]] = (),
+        integrity_report: IntegrityReport | None = None,
     ) -> DailySlateStatus:
+        active_integrity = integrity_report or (daily_run_result.integrity_report if daily_run_result else None)
         if slate is None:
             missing = dict(daily_run_result.missing_data) if daily_run_result else {}
             return DailySlateStatus(
@@ -87,6 +95,7 @@ class CommandCenterEngine:
                 missing_lineups=_missing_lineup_messages(missing),
                 provider_health=[*_provider_health_rows(provider_health)],
                 validation_failures=missing,
+                integrity_alerts=_integrity_counts(active_integrity),
             )
 
         validation_failures = _validation_failures(slate)
@@ -99,6 +108,7 @@ class CommandCenterEngine:
             missing_lineups=_missing_lineup_messages(validation_failures),
             provider_health=provider_rows,
             validation_failures=validation_failures,
+            integrity_alerts=_integrity_counts(active_integrity),
         )
 
     def formula_health(
@@ -127,6 +137,7 @@ class CommandCenterEngine:
         recommendations: RecommendationReport | None = None,
         trends: TrendSummary | None = None,
         optimizer: OptimizationResult | None = None,
+        integrity_report: IntegrityReport | None = None,
     ) -> DailyExecutionSummary:
         errors = list(daily_run_result.errors if daily_run_result else [])
         warnings: list[str] = []
@@ -138,6 +149,9 @@ class CommandCenterEngine:
             warnings.extend(f"trends: {error}" for error in trends.errors)
         if optimizer and optimizer.errors:
             warnings.extend(f"optimizer: {error}" for error in optimizer.errors)
+        active_integrity = integrity_report or (daily_run_result.integrity_report if daily_run_result else None)
+        if active_integrity and not active_integrity.success:
+            warnings.append("integrity: data integrity report contains blocking alerts.")
 
         return DailyExecutionSummary(
             step2_status=_step2_status(daily_run_result),
@@ -145,7 +159,8 @@ class CommandCenterEngine:
             step4_status=_step_status(daily_run_result.step4_result if daily_run_result else None),
             step5_status=_step_status(daily_run_result.step5_result if daily_run_result else None),
             reports_generated=_reports_generated(daily_run_result),
-            exports_generated=_exports_generated(daily_run_result, dashboard, recommendations, trends, optimizer),
+            exports_generated=_exports_generated(daily_run_result, dashboard, recommendations, trends, optimizer, active_integrity),
+            integrity_report_path=_integrity_path(daily_run_result, active_integrity),
             errors=errors,
             warnings=warnings,
         )
@@ -307,6 +322,7 @@ def _exports_generated(
     recommendations: RecommendationReport | None,
     trends: TrendSummary | None,
     optimizer: OptimizationResult | None,
+    integrity_report: IntegrityReport | None,
 ) -> list[str]:
     exports = []
     if daily_run_result and daily_run_result.report_json_path:
@@ -319,7 +335,23 @@ def _exports_generated(
         exports.append("data/trends/trends.json")
     if optimizer:
         exports.append("data/optimizer/optimizer_report.json")
+    if daily_run_result and daily_run_result.integrity_report_path:
+        exports.append(daily_run_result.integrity_report_path)
+    elif integrity_report:
+        exports.append("data/integrity/integrity_report.json")
     return exports
+
+
+def _integrity_counts(report: IntegrityReport | None) -> dict[str, int]:
+    return dict(report.severity_counts) if report else {}
+
+
+def _integrity_path(daily_run_result: DailyRunResult | None, integrity_report: IntegrityReport | None) -> str:
+    if daily_run_result and daily_run_result.integrity_report_path:
+        return daily_run_result.integrity_report_path
+    if integrity_report:
+        return "data/integrity/integrity_report.json"
+    return ""
 
 
 def _json_ready(value: Any) -> Any:
