@@ -101,6 +101,15 @@ class HistoricalBacktestEngine:
     def export_json(self, result: BacktestResult, *, indent: int | None = 2) -> str:
         return result.to_json(indent=indent)
 
+    def build_dashboard(self, result: BacktestResult, *, calibration_result=None, postmortem_reports=()):
+        from russworks.dashboard import CalibrationDashboardEngine
+
+        return CalibrationDashboardEngine().build_dashboard(
+            calibration_result=calibration_result,
+            postmortem_reports=postmortem_reports,
+            backtest_result=result,
+        )
+
     def _load_slate(self, day: str, request: BacktestRequest) -> DailySlate:
         if self._slate_loader is not None:
             return self._slate_loader(day)
