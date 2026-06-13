@@ -68,6 +68,7 @@ class FullRussWorksReport:
     step4: Step4Report
     step5: Step5Report
     schema_version: str = REPORT_SCHEMA_VERSION
+    explanations: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return _json_ready(asdict(self))
@@ -123,12 +124,14 @@ class ReportGenerator:
         step3_results: BatterReviewResult | None,
         cluster_ranking: ClusterRanking | None,
         slip_portfolio: SlipPortfolio | None,
+        explanations: Mapping[str, Any] | None = None,
     ) -> FullRussWorksReport:
         return FullRussWorksReport(
             context=context,
             step3=self.generate_step3_report(step3_results),
             step4=self.generate_step4_report(cluster_ranking),
             step5=self.generate_step5_report(slip_portfolio),
+            explanations=dict(explanations or {}),
         )
 
     def export_json(self, report: FullRussWorksReport, *, indent: int | None = 2) -> str:
