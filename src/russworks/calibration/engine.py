@@ -119,6 +119,16 @@ class FormulaCalibrationEngine:
             current_weights=current_weights,
         )
 
+    def build_trends(self, result: CalibrationResult, *, dashboard=None, recommendation_report=None, backtest_result: BacktestResult | None = None):
+        from russworks.trends import TrendEngine
+
+        return TrendEngine().build_trends(
+            calibration_result=result,
+            dashboard=dashboard,
+            recommendation_report=recommendation_report,
+            backtest_result=backtest_result,
+        )
+
 
 def calibrate_formula(
     step3_results: BatterReviewResult | Sequence[BatterReviewResult] | Sequence[BatterReview],

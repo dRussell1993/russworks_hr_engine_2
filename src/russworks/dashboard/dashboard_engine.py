@@ -97,6 +97,23 @@ class CalibrationDashboardEngine:
             current_weights=current_weights,
         )
 
+    def build_trends(
+        self,
+        dashboard: CalibrationDashboard,
+        *,
+        calibration_result: CalibrationResult | None = None,
+        recommendation_report=None,
+        backtest_result: BacktestResult | None = None,
+    ):
+        from russworks.trends import TrendEngine
+
+        return TrendEngine().build_trends(
+            dashboard=dashboard,
+            calibration_result=calibration_result,
+            recommendation_report=recommendation_report,
+            backtest_result=backtest_result,
+        )
+
 
 def build_calibration_dashboard(
     calibration_result: CalibrationResult | None = None,
