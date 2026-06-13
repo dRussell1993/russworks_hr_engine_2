@@ -96,6 +96,16 @@ class WeightRecommendationEngine:
         output_path.write_text(report.to_json(), encoding="utf-8")
         return output_path
 
+    def build_trends(self, report: RecommendationReport, *, dashboard=None, calibration_result=None, backtest_result=None):
+        from russworks.trends import TrendEngine
+
+        return TrendEngine().build_trends(
+            recommendation_report=report,
+            dashboard=dashboard,
+            calibration_result=calibration_result,
+            backtest_result=backtest_result,
+        )
+
     def _module_recommendation(
         self,
         module: str,
