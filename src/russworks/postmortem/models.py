@@ -85,6 +85,7 @@ class PostMortemReport:
     false_positive_log: List[FalsePositiveEntry] = field(default_factory=list)
     adjustment_log: List[AdjustmentLogEntry] = field(default_factory=list)
     calibration_recommendations: List[CalibrationRecommendation] = field(default_factory=list)
+    explanation_summaries: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
 
     @property

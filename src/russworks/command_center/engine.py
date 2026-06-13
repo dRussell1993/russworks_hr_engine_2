@@ -31,6 +31,7 @@ class CommandCenterEngine:
         optimizer: OptimizationResult | None = None,
         provider_health: Iterable[ProviderHealth | Mapping[str, Any]] = (),
         weights: ScoringWeights | Mapping[str, Any] | None = None,
+        explanations_path: str = "",
     ) -> CommandCenterReport:
         active_slate = slate or (daily_run_result.slate if daily_run_result else None)
         report_date = date or _date_from_inputs(daily_run_result, active_slate)
@@ -53,6 +54,7 @@ class CommandCenterEngine:
             recommendations=recommendations,
             trends=trends,
             optimizer=optimizer,
+            explanations_path=explanations_path,
         )
         errors = list(execution_summary.errors)
         warnings = list(execution_summary.warnings)
@@ -65,6 +67,7 @@ class CommandCenterEngine:
             slate_status=slate_status,
             formula_health=formula_health,
             execution_summary=execution_summary,
+            explanations_path=explanations_path,
             errors=errors,
             warnings=warnings,
         )
@@ -127,6 +130,7 @@ class CommandCenterEngine:
         recommendations: RecommendationReport | None = None,
         trends: TrendSummary | None = None,
         optimizer: OptimizationResult | None = None,
+        explanations_path: str = "",
     ) -> DailyExecutionSummary:
         errors = list(daily_run_result.errors if daily_run_result else [])
         warnings: list[str] = []
@@ -145,7 +149,7 @@ class CommandCenterEngine:
             step4_status=_step_status(daily_run_result.step4_result if daily_run_result else None),
             step5_status=_step_status(daily_run_result.step5_result if daily_run_result else None),
             reports_generated=_reports_generated(daily_run_result),
-            exports_generated=_exports_generated(daily_run_result, dashboard, recommendations, trends, optimizer),
+            exports_generated=_exports_generated(daily_run_result, dashboard, recommendations, trends, optimizer, explanations_path),
             errors=errors,
             warnings=warnings,
         )
@@ -307,6 +311,7 @@ def _exports_generated(
     recommendations: RecommendationReport | None,
     trends: TrendSummary | None,
     optimizer: OptimizationResult | None,
+    explanations_path: str = "",
 ) -> list[str]:
     exports = []
     if daily_run_result and daily_run_result.report_json_path:
@@ -319,6 +324,8 @@ def _exports_generated(
         exports.append("data/trends/trends.json")
     if optimizer:
         exports.append("data/optimizer/optimizer_report.json")
+    if explanations_path:
+        exports.append(explanations_path)
     return exports
 
 

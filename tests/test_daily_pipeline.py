@@ -176,6 +176,8 @@ def test_daily_pipeline_runs_all_steps_and_saves_report_json():
         payload = json.loads(report_path.read_text(encoding="utf-8"))
         assert payload["context"]["validation_status"] == "valid"
         assert payload["context"]["game_ids"] == ["tex-kc-1"]
+        assert payload["explanations"]["batter_explanations"]
+        assert (output_root.parent / "explanations" / "explanations.json").exists()
 
 
 def test_daily_pipeline_blocks_when_step2_validation_is_incomplete():
