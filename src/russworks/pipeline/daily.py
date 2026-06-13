@@ -9,6 +9,13 @@ from russworks.intake import ReviewQueue, validate_step2_intake
 from russworks.reports import FullRussWorksReport, ReportGenerator
 from russworks.review import BatterReviewResult, review_all_batters
 from russworks.slips import SlipPortfolio, generate_slip_portfolio
+from russworks.providers import (
+    BallparkProvider,
+    BaseballSavantProvider,
+    DailySlateProvider,
+    MLBStatsProvider,
+    WeatherProvider,
+)
 
 from .models import DailyRunRequest, DailyRunResult
 
@@ -81,6 +88,17 @@ class RussWorksPipeline:
         if self._slate_loader is not None:
             return self._slate_loader(request.date, request)
         provider = CSVDataProvider(Path(request.data_root) / request.date)
+        if request.provider_mode == "live":
+            slate_provider = DailySlateProvider(
+                providers=[
+                    MLBStatsProvider(),
+                    WeatherProvider(),
+                    BallparkProvider(),
+                    BaseballSavantProvider(),
+                ],
+                fallback_provider=provider,
+            )
+            return slate_provider.load_daily_slate(request.date)
         return load_slate_from_provider(provider, request.date)
 
     def validate_slate(self, slate: DailySlate) -> list[ReviewQueue]:
@@ -119,8 +137,14 @@ class RussWorksPipeline:
         return output_dir, report_path
 
 
-def run_daily_pipeline(date: str, *, data_root: str = "data/daily", output_root: str = "data/outputs") -> DailyRunResult:
-    request = DailyRunRequest(date=date, data_root=data_root, output_root=output_root)
+def run_daily_pipeline(
+    date: str,
+    *,
+    data_root: str = "data/daily",
+    output_root: str = "data/outputs",
+    provider_mode: str = "csv",
+) -> DailyRunResult:
+    request = DailyRunRequest(date=date, data_root=data_root, output_root=output_root, provider_mode=provider_mode)
     return RussWorksPipeline().run_daily_pipeline(date, request)
 
 

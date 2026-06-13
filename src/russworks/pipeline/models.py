@@ -18,6 +18,7 @@ class DailyRunRequest:
     date: str
     data_root: str = "data/daily"
     output_root: str = "data/outputs"
+    provider_mode: str = "csv"
 
 
 @dataclass(frozen=True)

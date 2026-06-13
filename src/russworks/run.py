@@ -12,9 +12,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", required=True, help="Slate date in YYYY-MM-DD format.")
     parser.add_argument("--data-root", default="data/daily", help="Root folder containing daily input folders.")
     parser.add_argument("--output-root", default="data/outputs", help="Root folder for daily output folders.")
+    parser.add_argument("--provider-mode", default="csv", choices=["csv", "live"], help="Daily slate source mode.")
     args = parser.parse_args(argv)
 
-    request = DailyRunRequest(date=args.date, data_root=args.data_root, output_root=args.output_root)
+    request = DailyRunRequest(
+        date=args.date,
+        data_root=args.data_root,
+        output_root=args.output_root,
+        provider_mode=args.provider_mode,
+    )
     result = RussWorksPipeline().run_daily_pipeline(args.date, request)
     print(
         json.dumps(
