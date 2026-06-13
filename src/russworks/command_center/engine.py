@@ -133,6 +133,7 @@ class CommandCenterEngine:
             modules_cooling_off=list(trends.cooling_off if trends else []),
             optimizer_recommendations=_optimizer_recommendations(optimizer, recommendations),
             confidence_summary=_confidence_summary(daily_run_result),
+            portfolio_risk_summary=_portfolio_risk_summary(daily_run_result),
         )
 
     def execution_summary(
@@ -168,6 +169,7 @@ class CommandCenterEngine:
             reports_generated=_reports_generated(daily_run_result),
             exports_generated=_exports_generated(daily_run_result, dashboard, recommendations, trends, optimizer, active_integrity, explanations_path),
             integrity_report_path=_integrity_path(daily_run_result, active_integrity),
+            portfolio_report_path=daily_run_result.portfolio_report_path if daily_run_result else "",
             errors=errors,
             warnings=warnings,
         )
@@ -347,6 +349,8 @@ def _exports_generated(
         exports.append(daily_run_result.integrity_report_path)
     elif integrity_report:
         exports.append("data/integrity/integrity_report.json")
+    if daily_run_result and daily_run_result.portfolio_report_path:
+        exports.append(daily_run_result.portfolio_report_path)
     if explanations_path:
         exports.append(explanations_path)
     return exports
@@ -379,6 +383,19 @@ def _confidence_summary(daily_run_result: DailyRunResult | None) -> dict[str, An
         "min_confidence": min(scores),
         "max_confidence": max(scores),
         "grade_counts": grade_counts,
+    }
+
+
+def _portfolio_risk_summary(daily_run_result: DailyRunResult | None) -> dict[str, Any]:
+    if daily_run_result is None or daily_run_result.portfolio_report is None:
+        return {}
+    profile = daily_run_result.portfolio_report
+    return {
+        "risk_grade": profile.risk_report.risk_grade.value,
+        "risk_score": profile.risk_report.risk_score,
+        "recommendation_count": len(profile.recommendations),
+        "total_slips": profile.exposure_report.total_slips,
+        "total_legs": profile.exposure_report.total_legs,
     }
 
 

@@ -8,6 +8,7 @@ import json
 
 from russworks.cluster import ClusterRanking, TeamClusterReport
 from russworks.dashboard import CalibrationDashboard
+from russworks.portfolio import PortfolioProfile
 from russworks.postmortem import PostMortemReport
 from russworks.review import BatterReview, BatterReviewResult
 from russworks.slips import Slip, SlipPortfolio
@@ -116,6 +117,7 @@ class ExplainabilityEngine:
         dashboard: CalibrationDashboard | None = None,
         postmortem_report: PostMortemReport | None = None,
         command_center: Any | None = None,
+        portfolio_profile: PortfolioProfile | None = None,
     ) -> dict[str, Any]:
         batter_explanations = [
             self.explain_batter_review(review).to_dict()
@@ -136,6 +138,7 @@ class ExplainabilityEngine:
             "dashboard_context": _dashboard_context(dashboard),
             "postmortem_context": _postmortem_context(postmortem_report),
             "command_center_context": _command_center_context(command_center),
+            "portfolio_context": _portfolio_context(portfolio_profile),
             "summaries": _summaries(batter_explanations, team_explanations, slip_explanations),
         }
 
@@ -226,6 +229,18 @@ def _command_center_context(report: Any | None) -> dict[str, Any]:
         "step5_status": report.execution_summary.step5_status,
         "errors": list(report.errors),
         "warnings": list(report.warnings),
+    }
+
+
+def _portfolio_context(profile: PortfolioProfile | None) -> dict[str, Any]:
+    if profile is None:
+        return {}
+    return {
+        "risk_grade": profile.risk_report.risk_grade.value,
+        "risk_score": profile.risk_report.risk_score,
+        "recommendations": [recommendation.message for recommendation in profile.recommendations],
+        "team_exposure": dict(profile.exposure_report.team_exposure),
+        "confidence_exposure": dict(profile.exposure_report.confidence_exposure),
     }
 
 

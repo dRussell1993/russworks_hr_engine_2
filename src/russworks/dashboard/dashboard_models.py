@@ -52,6 +52,7 @@ class CalibrationDashboard:
     integrity_summaries: list[str] = field(default_factory=list)
     explanation_summaries: list[str] = field(default_factory=list)
     confidence_summaries: list[str] = field(default_factory=list)
+    portfolio_summaries: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     @property
