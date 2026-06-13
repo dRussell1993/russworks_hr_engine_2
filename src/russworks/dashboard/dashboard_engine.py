@@ -64,6 +64,8 @@ class CalibrationDashboardEngine:
         simulation_result: SimulationResult | None = None,
         self_learning_report: SelfLearningReport | None = None,
         scheduler_status: SchedulerStatus | None = None,
+        validation_summary: dict[str, object] | None = None,
+        skipped_games: Sequence[object] = (),
     ) -> CalibrationDashboard:
         modules = _module_performances(calibration_result, backtest_result)
         top = sorted(modules, key=lambda item: (item.confidence_accuracy, item.hit_rate, item.wins), reverse=True)[:5]
@@ -79,6 +81,8 @@ class CalibrationDashboardEngine:
         simulation_summaries = _simulation_summaries(simulation_result)
         self_learning_summaries = _self_learning_summaries(self_learning_report)
         scheduler_summaries = _scheduler_summaries(scheduler_status)
+        validation_summaries = _validation_summaries(validation_summary)
+        skipped_game_summaries = _skipped_game_summaries(skipped_games)
         errors = []
         if calibration_result and calibration_result.errors:
             errors.extend(calibration_result.errors)
@@ -102,6 +106,8 @@ class CalibrationDashboardEngine:
             simulation_summaries=simulation_summaries,
             self_learning_summaries=self_learning_summaries,
             scheduler_summaries=scheduler_summaries,
+            validation_summaries=validation_summaries,
+            skipped_game_summaries=skipped_game_summaries,
             errors=errors,
         )
 
@@ -179,6 +185,8 @@ def build_calibration_dashboard(
     simulation_result: SimulationResult | None = None,
     self_learning_report: SelfLearningReport | None = None,
     scheduler_status: SchedulerStatus | None = None,
+    validation_summary: dict[str, object] | None = None,
+    skipped_games: Sequence[object] = (),
 ) -> CalibrationDashboard:
     return CalibrationDashboardEngine().build_dashboard(
         calibration_result=calibration_result,
@@ -191,6 +199,8 @@ def build_calibration_dashboard(
         simulation_result=simulation_result,
         self_learning_report=self_learning_report,
         scheduler_status=scheduler_status,
+        validation_summary=validation_summary,
+        skipped_games=skipped_games,
     )
 
 
@@ -421,6 +431,29 @@ def _scheduler_summaries(status: SchedulerStatus | None) -> list[str]:
         f"Scheduler failed tasks: {failed}.",
         f"Scheduler status: {'success' if status.success else 'attention required'}.",
     ]
+
+
+def _validation_summaries(summary: dict[str, object] | None) -> list[str]:
+    if not summary:
+        return []
+    return [
+        "Slate validation: "
+        + ", ".join(
+            f"{key}={summary.get(key)}"
+            for key in ("total_games", "complete_games", "incomplete_games", "skipped_games")
+            if key in summary
+        )
+        + "."
+    ]
+
+
+def _skipped_game_summaries(skipped_games: Sequence[object]) -> list[str]:
+    summaries = []
+    for game in skipped_games:
+        game_id = getattr(game, "game_id", "")
+        reasons = getattr(game, "skipped_reason", [])
+        summaries.append(f"Skipped {game_id}: {'; '.join(str(reason) for reason in reasons)}")
+    return summaries
 
 
 def _rate(numerator: int | float, denominator: int | float) -> float:

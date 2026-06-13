@@ -19,6 +19,33 @@ from russworks.slips import SlipPortfolio
 
 
 @dataclass(frozen=True)
+class CompleteGame:
+    game_id: str
+    original_game_id: str = ""
+    teams: list[str] = field(default_factory=list)
+    validation_status: str = "complete"
+
+
+@dataclass(frozen=True)
+class IncompleteGame:
+    game_id: str
+    original_game_id: str = ""
+    teams: list[str] = field(default_factory=list)
+    missing_data: dict[str, list[str]] = field(default_factory=dict)
+    validation_status: str = "incomplete"
+
+
+@dataclass(frozen=True)
+class SkippedGame:
+    game_id: str
+    original_game_id: str = ""
+    teams: list[str] = field(default_factory=list)
+    skipped_reason: list[str] = field(default_factory=list)
+    missing_data: dict[str, list[str]] = field(default_factory=dict)
+    validation_status: str = "skipped"
+
+
+@dataclass(frozen=True)
 class DailyRunRequest:
     date: str
     data_root: str = "data/daily"
@@ -33,6 +60,10 @@ class DailyRunResult:
     success: bool
     validation_status: str
     missing_data: dict[str, list[str]] = field(default_factory=dict)
+    validation_summary: dict[str, Any] = field(default_factory=dict)
+    complete_games: list[CompleteGame] = field(default_factory=list)
+    incomplete_games: list[IncompleteGame] = field(default_factory=list)
+    skipped_games: list[SkippedGame] = field(default_factory=list)
     total_batters_reviewed: int = 0
     output_dir: str = ""
     report_json_path: str = ""
@@ -54,6 +85,7 @@ class DailyRunResult:
     step4_result: ClusterRanking | None = None
     step5_result: SlipPortfolio | None = None
     full_report: FullRussWorksReport | None = None
+    warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:

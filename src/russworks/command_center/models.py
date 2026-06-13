@@ -17,6 +17,8 @@ class DailySlateStatus:
     provider_health: list[dict[str, Any]] = field(default_factory=list)
     validation_failures: dict[str, list[str]] = field(default_factory=dict)
     integrity_alerts: dict[str, int] = field(default_factory=dict)
+    skipped_games: list[dict[str, Any]] = field(default_factory=list)
+    validation_summary: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

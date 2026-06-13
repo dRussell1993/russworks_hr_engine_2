@@ -113,6 +113,54 @@ def _slate(date: str = "2026-06-13", *, missing_weak_spots: bool = False) -> Dai
     )
 
 
+def _game(game_id: str, date: str, *, complete: bool = True) -> GameIntake:
+    away = f"A{game_id}"
+    home = f"H{game_id}"
+    away_pitcher = PitcherIntake(name=f"{away} Starter", team=away, throws=Handedness.R, projected_hr=1.2, projected_hits=5.0, confirmed=True)
+    home_pitcher = PitcherIntake(name=f"{home} Starter", team=home, throws=Handedness.L, projected_hr=1.4, projected_hits=5.5, confirmed=True)
+    environment = GameEnvironment(
+        game_id=game_id,
+        date=date,
+        away_team=away,
+        home_team=home,
+        park=f"{game_id} Park",
+        temperature_f=82.0,
+        wind_mph=7.0,
+        wind_direction="out",
+        humidity_pct=50.0,
+        roof="open",
+        weather_hr_pct=6.0,
+        weather_distance_ft=8.0,
+        park_hr_factor=7.5,
+        umpire=Umpire(name=f"{game_id} Ump", zone_type="Neutral", run_lean=0.2),
+    )
+    weak_spots = [] if not complete else [
+        PitcherWeakSpot(pitcher_name=away_pitcher.name, pitch="slider", weakness_score=6.0),
+        PitcherWeakSpot(pitcher_name=home_pitcher.name, pitch="fastball", weakness_score=6.0),
+    ]
+    hr_matchups = [] if not complete else [
+        HRMatchup(batter_name=f"{home} Batter 1", pitcher_name=away_pitcher.name, pitch="slider", matchup_score=8.0),
+        HRMatchup(batter_name=f"{away} Batter 4", pitcher_name=home_pitcher.name, pitch="fastball", matchup_score=7.5),
+    ]
+    return GameIntake(
+        game_id=game_id,
+        date=date,
+        away_team=TeamIntake(team=away, batters=_batters(away, away), starting_pitcher=away_pitcher),
+        home_team=TeamIntake(team=home, batters=_batters(home, home), starting_pitcher=home_pitcher),
+        environment=environment,
+        umpire=environment.umpire,
+        weak_spots=weak_spots,
+        hr_matchups=hr_matchups,
+    )
+
+
+def _multi_game_slate(date: str, *, complete_count: int, skipped_count: int) -> DailySlate:
+    games = [_game(f"g{i}-h{i}-1", date, complete=True) for i in range(complete_count)]
+    games.extend(_game(f"skip{i}-bad{i}-1", date, complete=False) for i in range(skipped_count))
+    watchlist = [game.home_team.batters[0] for game in games if game.home_team.batters]
+    return DailySlate(date=date, games=games, watchlist=WatchlistImport(games=games, batters=watchlist))
+
+
 def _write_csv(root: Path, name: str, header: list[str], rows: list[list[object]]) -> None:
     path = root / f"{name}.csv"
     path.write_text(
@@ -204,6 +252,52 @@ def test_daily_pipeline_blocks_when_step2_validation_is_incomplete():
         assert result.validation_status == "invalid"
         assert "weak_spot" in result.missing_data
         assert "Step 2 validation incomplete" in result.errors[0]
+        assert result.step3_result is None
+        assert result.report_json_path == ""
+        assert Path(result.command_center_path).exists()
+
+
+def test_daily_pipeline_processes_complete_games_when_one_game_is_skipped():
+    with TemporaryDirectory() as temp_dir:
+        output_root = Path(temp_dir) / "outputs"
+        request = DailyRunRequest(date="2026-06-13", output_root=str(output_root))
+        pipeline = RussWorksPipeline(slate_loader=lambda date, request: _multi_game_slate(date, complete_count=14, skipped_count=1))
+
+        result = pipeline.run_daily_pipeline("2026-06-13", request)
+
+        assert result.success
+        assert result.validation_status == "partial"
+        assert result.validation_summary["total_games"] == 15
+        assert result.validation_summary["complete_games"] == 14
+        assert result.validation_summary["skipped_games"] == 1
+        assert len(result.complete_games) == 14
+        assert len(result.skipped_games) == 1
+        assert "hr_matchup" in result.skipped_games[0].missing_data
+        assert result.total_batters_reviewed == 14 * 18
+        assert result.full_report.context.validation_status == "partial"
+        assert result.full_report.context.skipped_games
+        assert result.full_report.context.warnings
+        dashboard_payload = json.loads(Path(result.dashboard_path).read_text(encoding="utf-8"))
+        assert dashboard_payload["validation_summaries"]
+        assert dashboard_payload["skipped_game_summaries"]
+        command_payload = json.loads(Path(result.command_center_path).read_text(encoding="utf-8"))
+        assert command_payload["slate_status"]["skipped_games"]
+        assert command_payload["warnings"]
+
+
+def test_daily_pipeline_fails_when_no_complete_games_remain():
+    with TemporaryDirectory() as temp_dir:
+        output_root = Path(temp_dir) / "outputs"
+        request = DailyRunRequest(date="2026-06-13", output_root=str(output_root))
+        pipeline = RussWorksPipeline(slate_loader=lambda date, request: _multi_game_slate(date, complete_count=0, skipped_count=2))
+
+        result = pipeline.run_daily_pipeline("2026-06-13", request)
+
+        assert not result.success
+        assert result.validation_status == "invalid"
+        assert result.validation_summary["complete_games"] == 0
+        assert result.validation_summary["skipped_games"] == 2
+        assert len(result.skipped_games) == 2
         assert result.step3_result is None
         assert result.report_json_path == ""
         assert Path(result.command_center_path).exists()
