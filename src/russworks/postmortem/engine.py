@@ -318,6 +318,8 @@ def _archetypes_for_leg(slip: Slip, leg: SlipLeg) -> List[str]:
         archetypes.append("Veteran Bounce")
     if "catcher" in haystack:
         archetypes.append("Catcher Power")
+    if "pitch mix" in haystack or "pitch_mix" in haystack or "pitch-type" in haystack or "pitch type" in haystack:
+        archetypes.append("Pitch Mix Matchup")
     if "chaos" in haystack or "higher-variance" in haystack:
         archetypes.append("Chaos")
     if "contrarian" in haystack or "overlooked" in haystack or "secondary" in haystack:
@@ -336,6 +338,8 @@ def _loser_reason(leg: SlipLeg, archetypes: Sequence[str]) -> str:
         return "Catcher Power leg missed actual HR list."
     if "Veteran Bounce" in archetypes:
         return "Veteran Bounce rebound leg missed actual HR list."
+    if "Pitch Mix Matchup" in archetypes:
+        return "Pitch Mix Matchup leg missed actual HR list."
     if "Non-Superstar" in archetypes:
         return "Value-backed non-superstar leg missed actual HR list."
     if leg.tag in {"A", "A+"} and leg.cps in {"A", "A+"}:

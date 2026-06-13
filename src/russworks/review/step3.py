@@ -10,6 +10,7 @@ from russworks.scoring.catcher import CatcherPowerEngine, CatcherProfile
 from russworks.scoring.cps import ClusterParticipationInput, ClusterParticipationScore, calculate_cps
 from russworks.scoring.environment import EnvironmentScore, EnvironmentScoreInput, calculate_environment_score
 from russworks.scoring.lstm import LineupSlotTrendInput, calculate_lstm
+from russworks.scoring.pitchmix import BatterPitchProfile, PitchMixEngine, PitchMixProfile
 from russworks.scoring.pvs import PitchVulnerabilityInput, calculate_pvs
 from russworks.scoring.tag import TeamAttackGrade, TeamAttackGradeInput, calculate_tag
 from russworks.scoring.umpire import UmpireScore, UmpireScoreInput, calculate_umpire_score
@@ -42,6 +43,7 @@ class Step3ReviewEngine:
         self.ypi_engine = YPIEngine()
         self.veteran_bounce_engine = VeteranBounceEngine()
         self.catcher_power_engine = CatcherPowerEngine()
+        self.pitch_mix_engine = PitchMixEngine()
 
     def review_all_batters(self, game: GameIntake) -> BatterReviewResult:
         queue = validate_step2_intake(game)
@@ -99,6 +101,10 @@ class Step3ReviewEngine:
         )
         veteran_bounce = self.veteran_bounce_engine.score_profile(_veteran_profile(batter, tag, cps))
         catcher_power = self.catcher_power_engine.score_profile(_catcher_profile(batter, tag, cps))
+        pitch_mix_matchup = self.pitch_mix_engine.score_matchup(
+            _pitch_mix_profile(opponent_pitcher, game),
+            _batter_pitch_profile(batter, opponent_pitcher.name, game),
+        )
 
         ypi_flag = _has_any_tag(batter, {"ypi", "young", "prospect", "rookie", "small sample", "speed-power"}) or ypi.ypi_grade in {"Elite", "Strong", "Emerging"}
         catcher_power_flag = catcher_power.grade in {"Elite", "Strong", "Moderate"}
@@ -107,6 +113,7 @@ class Step3ReviewEngine:
         non_superstar_core_flag = not _has_any_tag(batter, {"superstar"}) and (
             pvs.label in {"strong", "elite"} or tag.grade.startswith("A") or cps.grade.startswith("A")
         )
+        pitch_mix_matchup_flag = pitch_mix_matchup.grade in {"Elite", "Strong", "Moderate"}
 
         final_score = _final_russ_score(
             batter=batter,
@@ -120,6 +127,7 @@ class Step3ReviewEngine:
             catcher_power_flag=catcher_power_flag,
             veteran_bounce_flag=veteran_bounce_flag,
             non_superstar_core_flag=non_superstar_core_flag,
+            pitch_mix_matchup_flag=pitch_mix_matchup_flag,
         )
         return BatterReview(
             batter_name=batter.name,
@@ -149,6 +157,7 @@ class Step3ReviewEngine:
                 ypi.ypi_grade,
                 veteran_bounce.grade,
                 catcher_power.grade,
+                pitch_mix_matchup.grade,
             ),
             weak_spot_collision_score=collision.collision_score,
             weak_spot_collision_confidence=collision.collision_confidence,
@@ -162,6 +171,9 @@ class Step3ReviewEngine:
             catcher_power_score=catcher_power.catcher_power_score,
             catcher_power_confidence=catcher_power.confidence,
             catcher_power_grade=catcher_power.grade,
+            pitch_mix_matchup_score=pitch_mix_matchup.pitch_mix_matchup_score,
+            pitch_mix_matchup_confidence=pitch_mix_matchup.confidence,
+            pitch_mix_matchup_grade=pitch_mix_matchup.grade,
         )
 
     def _build_context(self, game: GameIntake, queue: ReviewQueue) -> Step3GameContext:
@@ -310,6 +322,77 @@ def _pitcher_collision_profile(pitcher: Pitcher, game: GameIntake) -> PitcherWea
     )
 
 
+def _pitch_mix_profile(pitcher: Pitcher, game: GameIntake) -> PitchMixProfile:
+    weak_spots = [weak_spot for weak_spot in game.weak_spots if weak_spot.pitcher_name.lower() == pitcher.name.lower()]
+    matchup_pitches = [
+        matchup.pitch
+        for matchup in game.hr_matchups
+        if matchup.pitcher_name.lower() == pitcher.name.lower() and matchup.pitch
+    ]
+    pitch_types = _unique_names([*(weak_spot.pitch for weak_spot in weak_spots if weak_spot.pitch), *matchup_pitches])
+    if not pitch_types:
+        pitch_types = _pitch_tags(pitcher.tags) or ["fastball", "slider", "changeup"]
+    primary_pitch = pitch_types[0]
+    secondary_pitch = pitch_types[1] if len(pitch_types) > 1 else ""
+
+    usage: Dict[str, float] = {primary_pitch: 55.0}
+    if secondary_pitch:
+        usage[secondary_pitch] = 30.0
+    remaining = [pitch for pitch in pitch_types if pitch not in {primary_pitch, secondary_pitch}]
+    if remaining:
+        share = 15.0 / len(remaining)
+        usage.update({pitch: share for pitch in remaining})
+    elif not secondary_pitch:
+        usage[primary_pitch] = 100.0
+    return PitchMixProfile(
+        pitcher_name=pitcher.name,
+        pitch_types=pitch_types,
+        pitch_usage_percentages=usage,
+        primary_pitch=primary_pitch,
+        secondary_pitch=secondary_pitch,
+    )
+
+
+def _batter_pitch_profile(batter: BatterIntake, opponent_pitcher_name: str, game: GameIntake) -> BatterPitchProfile:
+    matchups = [
+        matchup
+        for matchup in game.hr_matchups
+        if matchup.batter_name.lower() == batter.name.lower()
+        and matchup.pitcher_name.lower() == opponent_pitcher_name.lower()
+        and matchup.pitch
+    ]
+    pitch_types = _unique_names([matchup.pitch for matchup in matchups]) or ["fastball", "slider", "changeup"]
+    hr_rate: Dict[str, float] = {}
+    barrel_rate: Dict[str, float] = {}
+    slugging: Dict[str, float] = {}
+    iso: Dict[str, float] = {}
+    whiff_rate: Dict[str, float] = {}
+
+    for pitch in pitch_types:
+        matchup = next((item for item in matchups if item.pitch == pitch), None)
+        matchup_score = matchup.matchup_score if matchup and matchup.matchup_score is not None else batter.pitch_mix_score
+        contact_boost = 0.0
+        if matchup and matchup.exit_velo and matchup.exit_velo >= 105.0:
+            contact_boost += 1.5
+        if matchup and matchup.distance and matchup.distance >= 400.0:
+            contact_boost += 1.0
+        quality = max(0.0, matchup_score + contact_boost)
+        hr_rate[pitch] = max(0.0, batter.hr_pct / 4.0 + quality * 0.45)
+        barrel_rate[pitch] = max(0.0, batter.pitch_mix_score + quality * 0.8)
+        slugging[pitch] = min(0.900, 0.300 + quality * 0.035 + batter.hr_pct * 0.006)
+        iso[pitch] = min(0.500, 0.100 + quality * 0.020 + batter.hr_pct * 0.004)
+        whiff_rate[pitch] = max(10.0, 32.0 - quality * 1.2)
+
+    return BatterPitchProfile(
+        batter_name=batter.name,
+        hr_rate_by_pitch_type=hr_rate,
+        barrel_rate_by_pitch_type=barrel_rate,
+        slugging_by_pitch_type=slugging,
+        iso_by_pitch_type=iso,
+        whiff_rate_by_pitch_type=whiff_rate,
+    )
+
+
 def _ypi_profile(batter: BatterIntake) -> YPIProfile:
     tags = " ".join(batter.tags).lower()
     is_young = any(key in tags for key in ["ypi", "young", "prospect", "rookie", "small sample", "speed-power"])
@@ -394,6 +477,7 @@ def _final_russ_score(
     catcher_power_flag: bool,
     veteran_bounce_flag: bool,
     non_superstar_core_flag: bool,
+    pitch_mix_matchup_flag: bool,
 ) -> float:
     score = 35.0
     score += batter.hr_pct * 1.15
@@ -407,6 +491,7 @@ def _final_russ_score(
     score += 7.0 if catcher_power_flag else 0.0
     score += 4.0 if veteran_bounce_flag else 0.0
     score += 3.0 if non_superstar_core_flag else 0.0
+    score += 4.0 if pitch_mix_matchup_flag else 0.0
     if _has_any_tag(batter, {"superstar"}) and pvs_score < 5 and lstm_score < 10:
         score -= 3.0
     return round(max(20.0, min(score, 99.0)), 1)
@@ -431,6 +516,7 @@ def _review_notes(
     ypi_grade: str,
     veteran_bounce_grade: str,
     catcher_power_grade: str,
+    pitch_mix_matchup_grade: str,
 ) -> List[str]:
     notes = []
     if ypi_flag:
@@ -443,4 +529,20 @@ def _review_notes(
         notes.append("Non-Superstar Core")
     if weak_spot_collision_flag:
         notes.append("Weak-Spot Collision")
+    if pitch_mix_matchup_grade in {"Elite", "Strong", "Moderate"}:
+        notes.append(f"Pitch Mix {pitch_mix_matchup_grade}")
     return notes
+
+
+def _unique_names(names: List[str]) -> List[str]:
+    unique: List[str] = []
+    for name in names:
+        if name and name not in unique:
+            unique.append(name)
+    return unique
+
+
+def _pitch_tags(tags: List[str]) -> List[str]:
+    known = ["fastball", "slider", "changeup", "curveball", "cutter", "sinker", "splitter", "sweeper"]
+    tag_text = " ".join(tags).lower()
+    return [pitch for pitch in known if pitch in tag_text]

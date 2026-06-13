@@ -8,6 +8,13 @@ from .catcher import CatcherPowerEngine, CatcherPowerResult, CatcherProfile, cal
 from .cps import ClusterParticipationInput, ClusterParticipationScore, calculate_cps as calculate_cps_module
 from .environment import EnvironmentScore, EnvironmentScoreInput, calculate_environment_score
 from .lstm import LineupSlotTrendInput, LineupSlotTrendMultiplier, calculate_lstm
+from .pitchmix import (
+    BatterPitchProfile,
+    PitchMixEngine,
+    PitchMixMatchupResult,
+    PitchMixProfile,
+    calculate_pitch_mix_matchup_score,
+)
 from .pvs import PitchVulnerabilityInput, PitchVulnerabilityScore, calculate_pvs
 from .tag import TeamAttackGrade, TeamAttackGradeInput, calculate_tag as calculate_tag_module, grade_score
 from .umpire import UmpireScore, UmpireScoreInput, calculate_umpire_score
@@ -266,6 +273,7 @@ __all__ = [
     "CatcherPowerEngine",
     "CatcherPowerResult",
     "CatcherProfile",
+    "BatterPitchProfile",
     "ClusterParticipationInput",
     "ClusterParticipationScore",
     "CollisionResult",
@@ -273,6 +281,9 @@ __all__ = [
     "EnvironmentScoreInput",
     "LineupSlotTrendInput",
     "LineupSlotTrendMultiplier",
+    "PitchMixEngine",
+    "PitchMixMatchupResult",
+    "PitchMixProfile",
     "PitcherWeakSpotProfile",
     "PitchVulnerabilityInput",
     "PitchVulnerabilityScore",
@@ -286,6 +297,7 @@ __all__ = [
     "calculate_cps_module",
     "calculate_environment_score",
     "calculate_lstm",
+    "calculate_pitch_mix_matchup_score",
     "calculate_pvs",
     "calculate_tag_module",
     "calculate_team_clusters",

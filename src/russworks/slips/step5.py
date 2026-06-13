@@ -28,14 +28,14 @@ class Step5SlipEngine:
         for team_report in _ranked_reports(cluster_report)[:2]:
             candidates = _unique_names([team_report.cluster_captain, *team_report.core_bats, team_report.hidden_cluster_beneficiary])
             legs = [
-                _leg(team_report, batter, "core", f"Core slip leg from strongest TAG/CPS cluster with {team_report.ypi_grade} YPI, {team_report.veteran_bounce_grade} Veteran Bounce, and {team_report.catcher_power_grade} Catcher Power context.")
+                _leg(team_report, batter, "core", f"Core slip leg from strongest TAG/CPS cluster with {team_report.ypi_grade} YPI, {team_report.veteran_bounce_grade} Veteran Bounce, {team_report.catcher_power_grade} Catcher Power, and {team_report.pitch_mix_matchup_grade} Pitch Mix context.")
                 for batter in candidates[:3]
             ]
             slip = _slip(
                 name=f"{team_report.team} Core Cluster",
                 slip_type="core",
                 legs=legs,
-                justification=f"Built around the strongest TAG/CPS cluster while keeping formula fit ahead of name value. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}.",
+                justification=f"Built around the strongest TAG/CPS cluster while keeping formula fit ahead of name value. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}. Pitch Mix grade: {team_report.pitch_mix_matchup_grade}.",
                 cluster=team_report,
             )
             if slip:
@@ -51,19 +51,20 @@ class Step5SlipEngine:
                 *team_report.ypi_bats,
                 *team_report.veteran_bounce_bats,
                 *team_report.catcher_power_bats,
+                *team_report.pitch_mix_matchup_bats,
             ])
             candidates = [name for name in value_pool if name != team_report.cluster_captain]
             if len(candidates) < 2:
                 candidates = value_pool
             legs = [
-                _leg(team_report, batter, "non-superstar core", f"Value-oriented leg backed by Step 4 non-superstar, hidden-beneficiary, YPI, Veteran Bounce, or Catcher Power context. Catcher Power grade: {team_report.catcher_power_grade}.")
+                _leg(team_report, batter, "non-superstar core", f"Value-oriented leg backed by Step 4 non-superstar, hidden-beneficiary, YPI, Veteran Bounce, Catcher Power, or Pitch Mix context. Pitch Mix grade: {team_report.pitch_mix_matchup_grade}.")
                 for batter in candidates[:3]
             ]
             slip = _slip(
                 name=f"{team_report.team} Non-Superstar Core",
                 slip_type="non_superstar_core",
                 legs=legs,
-                justification=f"Prioritizes hidden cluster beneficiaries, value bats, and Step 4 non-superstar core flags. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}.",
+                justification=f"Prioritizes hidden cluster beneficiaries, value bats, and Step 4 non-superstar core flags. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}. Pitch Mix grade: {team_report.pitch_mix_matchup_grade}.",
                 cluster=team_report,
                 min_legs=2,
             )
@@ -85,16 +86,17 @@ class Step5SlipEngine:
             *(top.non_superstar_cluster_bats[:2]),
             *(top.veteran_bounce_bats[:1]),
             *(top.catcher_power_bats[:1]),
+            *(top.pitch_mix_matchup_bats[:1]),
         ])
         legs = [
-            _leg(top, batter, "balanced", f"Balanced leg combining elite cluster strength, value support, YPI, Veteran Bounce, and {top.catcher_power_grade} Catcher Power context.")
+            _leg(top, batter, "balanced", f"Balanced leg combining elite cluster strength, value support, YPI, Veteran Bounce, Catcher Power, and {top.pitch_mix_matchup_grade} Pitch Mix context.")
             for batter in candidates[:3]
         ]
         slip = _slip(
             name=f"{top.team} Balanced Formula",
             slip_type="balanced",
             legs=legs,
-            justification=f"Mixes elite cluster bats and value bats from the highest-ranked cluster. YPI grade: {top.ypi_grade}. Veteran Bounce grade: {top.veteran_bounce_grade}. Catcher Power grade: {top.catcher_power_grade}.",
+            justification=f"Mixes elite cluster bats and value bats from the highest-ranked cluster. YPI grade: {top.ypi_grade}. Veteran Bounce grade: {top.veteran_bounce_grade}. Catcher Power grade: {top.catcher_power_grade}. Pitch Mix grade: {top.pitch_mix_matchup_grade}.",
             cluster=top,
         )
         if slip:
@@ -111,12 +113,12 @@ class Step5SlipEngine:
             legs = []
             for batter in cross_candidates[:4]:
                 source = top if batter in _all_report_names(top) else second
-                legs.append(_leg(source, batter, "balanced", f"Cross-cluster balance leg preserving TAG/CPS context, YPI pressure, Veteran Bounce, and {source.catcher_power_grade} Catcher Power context."))
+                legs.append(_leg(source, batter, "balanced", f"Cross-cluster balance leg preserving TAG/CPS context, YPI pressure, Veteran Bounce, Catcher Power, and {source.pitch_mix_matchup_grade} Pitch Mix context."))
             slip = _slip(
                 name="Cross-Cluster Balanced Formula",
                 slip_type="balanced",
                 legs=legs,
-                justification=f"Balances the top-ranked cluster with an overlooked bat from the next viable cluster. Top YPI grade: {top.ypi_grade}. Top Veteran Bounce grade: {top.veteran_bounce_grade}. Top Catcher Power grade: {top.catcher_power_grade}.",
+                justification=f"Balances the top-ranked cluster with an overlooked bat from the next viable cluster. Top YPI grade: {top.ypi_grade}. Top Veteran Bounce grade: {top.veteran_bounce_grade}. Top Catcher Power grade: {top.catcher_power_grade}. Top Pitch Mix grade: {top.pitch_mix_matchup_grade}.",
                 cluster=top,
                 min_legs=3,
             )
@@ -131,18 +133,19 @@ class Step5SlipEngine:
                 *team_report.ypi_bats,
                 *team_report.veteran_bounce_bats,
                 *team_report.catcher_power_bats,
+                *team_report.pitch_mix_matchup_bats,
                 *team_report.secondary_bats,
                 team_report.hidden_cluster_beneficiary,
             ])
             legs = [
-                _leg(team_report, batter, "chaos", f"Higher-variance leg allowed through catcher, YPI, Veteran Bounce, or cluster-extension logic. Catcher Power grade: {team_report.catcher_power_grade}.")
+                _leg(team_report, batter, "chaos", f"Higher-variance leg allowed through catcher, YPI, Veteran Bounce, Pitch Mix, or cluster-extension logic. Pitch Mix grade: {team_report.pitch_mix_matchup_grade}.")
                 for batter in candidates[:3]
             ]
             slip = _slip(
                 name=f"{team_report.team} Chaos Cluster",
                 slip_type="chaos",
                 legs=legs,
-                justification=f"Higher-variance construction that allows catcher power, YPI, veteran bounce, and cluster-extension profiles. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}.",
+                justification=f"Higher-variance construction that allows catcher power, YPI, veteran bounce, Pitch Mix, and cluster-extension profiles. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}. Pitch Mix grade: {team_report.pitch_mix_matchup_grade}.",
                 cluster=team_report,
                 min_legs=2,
             )
@@ -161,16 +164,17 @@ class Step5SlipEngine:
                 *team_report.ypi_bats,
                 *team_report.veteran_bounce_bats,
                 *team_report.catcher_power_bats,
+                *team_report.pitch_mix_matchup_bats,
             ])
             legs = [
-                _leg(team_report, batter, "contrarian", f"Lower-ownership style leg from an overlooked or secondary cluster path with YPI, Veteran Bounce, and {team_report.catcher_power_grade} Catcher Power context.")
+                _leg(team_report, batter, "contrarian", f"Lower-ownership style leg from an overlooked or secondary cluster path with YPI, Veteran Bounce, Catcher Power, and {team_report.pitch_mix_matchup_grade} Pitch Mix context.")
                 for batter in candidates[:3]
             ]
             slip = _slip(
                 name=f"{team_report.team} Contrarian Cluster",
                 slip_type="contrarian",
                 legs=legs,
-                justification=f"Lower-ownership style construction that leverages overlooked cluster paths. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}.",
+                justification=f"Lower-ownership style construction that leverages overlooked cluster paths. YPI grade: {team_report.ypi_grade}. Veteran Bounce grade: {team_report.veteran_bounce_grade}. Catcher Power grade: {team_report.catcher_power_grade}. Pitch Mix grade: {team_report.pitch_mix_matchup_grade}.",
                 cluster=team_report,
                 min_legs=2,
             )
@@ -299,6 +303,8 @@ def _slip(
             "veteran_bounce_score": f"{cluster.veteran_bounce_score:.2f}",
             "catcher_power_grade": cluster.catcher_power_grade,
             "catcher_power_score": f"{cluster.catcher_power_score:.2f}",
+            "pitch_mix_matchup_grade": cluster.pitch_mix_matchup_grade,
+            "pitch_mix_matchup_score": f"{cluster.pitch_mix_matchup_score:.2f}",
         },
     )
 
@@ -324,4 +330,5 @@ def _all_report_names(report: TeamClusterReport) -> set[str]:
         *report.catcher_power_bats,
         *report.ypi_bats,
         *report.veteran_bounce_bats,
+        *report.pitch_mix_matchup_bats,
     ]))
