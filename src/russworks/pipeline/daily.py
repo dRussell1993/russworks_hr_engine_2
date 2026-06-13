@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -29,9 +30,23 @@ from russworks.providers import (
 )
 
 from .models import DailyRunRequest, DailyRunResult
+from .models import CompleteGame, IncompleteGame, SkippedGame
 
 
 SlateLoader = Callable[[str, DailyRunRequest], DailySlate]
+_SKIPPABLE_MISSING_CATEGORIES = {"weak_spot", "hr_matchup", "park_factor", "umpire"}
+
+
+@dataclass(frozen=True)
+class _GameValidationPlan:
+    process_slate: DailySlate
+    complete_games: list[CompleteGame]
+    incomplete_games: list[IncompleteGame]
+    skipped_games: list[SkippedGame]
+    missing_data: dict[str, list[str]]
+    validation_summary: dict[str, object]
+    warnings: list[str]
+    validation_status: str
 
 
 class RussWorksPipeline:
@@ -55,37 +70,46 @@ class RussWorksPipeline:
         try:
             self._active_config = self.load_config(run_request)
             slate = self.load_daily_slate(run_request)
-            integrity_report = self.run_integrity_checks(slate)
-            validation_queues = self.validate_slate(slate)
-            missing_data = _merge_missing_data(validation_queues)
-            missing_data = _with_unmatched_game_ids(missing_data, slate)
-            if missing_data:
-                errors = _missing_data_errors(missing_data)
+            validation_plan = self.validate_games(slate)
+            integrity_source = validation_plan.process_slate if validation_plan.process_slate.games else slate
+            integrity_report = self.run_integrity_checks(integrity_source)
+            if not validation_plan.process_slate.games:
+                errors = _missing_data_errors(validation_plan.missing_data)
                 _, integrity_path = self.save_integrity_report(run_request, integrity_report)
                 result = DailyRunResult(
                     request=run_request,
                     success=False,
                     validation_status="invalid",
-                    missing_data=missing_data,
+                    missing_data=validation_plan.missing_data,
+                    validation_summary=validation_plan.validation_summary,
+                    complete_games=validation_plan.complete_games,
+                    incomplete_games=validation_plan.incomplete_games,
+                    skipped_games=validation_plan.skipped_games,
                     slate=slate,
                     integrity_report=integrity_report,
                     integrity_report_path=str(integrity_path),
+                    warnings=validation_plan.warnings,
                     errors=errors,
                 )
                 return self.export_failure_runtime_outputs(run_request, result, integrity_report)
 
-            step3 = self.run_step3(slate)
+            step3 = self.run_step3(validation_plan.process_slate)
             if not step3.success:
                 _, integrity_path = self.save_integrity_report(run_request, integrity_report)
                 result = DailyRunResult(
                     request=run_request,
                     success=False,
-                    validation_status="valid",
-                    slate=slate,
+                    validation_status=validation_plan.validation_status,
+                    validation_summary=validation_plan.validation_summary,
+                    complete_games=validation_plan.complete_games,
+                    incomplete_games=validation_plan.incomplete_games,
+                    skipped_games=validation_plan.skipped_games,
+                    slate=validation_plan.process_slate,
                     integrity_report=integrity_report,
                     integrity_report_path=str(integrity_path),
                     step3_result=step3,
                     total_batters_reviewed=step3.reviewed_batters,
+                    warnings=validation_plan.warnings,
                     errors=list(step3.errors),
                 )
                 return self.export_failure_runtime_outputs(run_request, result, integrity_report)
@@ -96,7 +120,7 @@ class RussWorksPipeline:
             diversification = self.analyze_diversification(step5, portfolio)
             simulation = self.simulate_portfolio(step5, portfolio)
             self_learning = self.build_self_learning_report(simulation)
-            report = self.generate_full_report(slate, step3, step4, step5, portfolio, diversification, simulation, self_learning)
+            report = self.generate_full_report(validation_plan.process_slate, step3, step4, step5, portfolio, diversification, simulation, self_learning, validation_plan)
             output_dir, report_path = self.save_outputs(run_request, report)
             _, integrity_path = self.save_integrity_report(run_request, integrity_report)
             _, portfolio_path = self.save_portfolio_report(run_request, portfolio)
@@ -107,7 +131,11 @@ class RussWorksPipeline:
             result = DailyRunResult(
                 request=run_request,
                 success=not errors,
-                validation_status="valid",
+                validation_status=validation_plan.validation_status,
+                validation_summary=validation_plan.validation_summary,
+                complete_games=validation_plan.complete_games,
+                incomplete_games=validation_plan.incomplete_games,
+                skipped_games=validation_plan.skipped_games,
                 total_batters_reviewed=step3.reviewed_batters,
                 output_dir=str(output_dir),
                 report_json_path=str(report_path),
@@ -116,7 +144,7 @@ class RussWorksPipeline:
                 diversification_report_path=str(diversification_path),
                 simulation_report_path=str(simulation_path),
                 self_learning_report_path=str(self_learning_path),
-                slate=slate,
+                slate=validation_plan.process_slate,
                 integrity_report=integrity_report,
                 portfolio_report=portfolio,
                 diversification_report=diversification,
@@ -126,6 +154,7 @@ class RussWorksPipeline:
                 step4_result=step4,
                 step5_result=step5,
                 full_report=report,
+                warnings=validation_plan.warnings,
                 errors=errors,
             )
             if errors:
@@ -168,6 +197,9 @@ class RussWorksPipeline:
     def validate_slate(self, slate: DailySlate) -> list[ReviewQueue]:
         return [validate_step2_intake(game) for game in slate.games]
 
+    def validate_games(self, slate: DailySlate) -> _GameValidationPlan:
+        return _build_game_validation_plan(slate)
+
     def run_integrity_checks(self, slate: DailySlate) -> IntegrityReport:
         return self._integrity_engine.validate_daily_slate(
             slate,
@@ -207,8 +239,11 @@ class RussWorksPipeline:
         diversification: DiversificationResult | None = None,
         simulation: SimulationResult | None = None,
         self_learning: SelfLearningReport | None = None,
+        validation_plan: _GameValidationPlan | None = None,
     ) -> FullRussWorksReport:
         context = slate.to_report_context()
+        if validation_plan is not None:
+            context = _context_with_validation_plan(context, validation_plan)
         if self._active_config is not None:
             context = _context_with_config(context, self._active_config)
         explanations = ExplainabilityEngine().generate_explanations(
@@ -277,6 +312,8 @@ class RussWorksPipeline:
             diversification_result=diversification,
             simulation_result=simulation,
             self_learning_report=self_learning,
+            validation_summary=result.validation_summary,
+            skipped_games=result.skipped_games,
         )
         dashboard_path = self.save_dashboard(request, dashboard)
         command_center = self._command_center_engine.build_report(
@@ -373,6 +410,159 @@ def _merge_missing_data(queues: Sequence[ReviewQueue]) -> dict[str, list[str]]:
     return {category: values for category, values in merged.items() if values}
 
 
+def _build_game_validation_plan(slate: DailySlate) -> _GameValidationPlan:
+    complete_games: list[CompleteGame] = []
+    incomplete_games: list[IncompleteGame] = []
+    skipped_games: list[SkippedGame] = []
+    process_games = []
+    all_missing: dict[str, list[str]] = {}
+
+    for game in slate.games:
+        queue = validate_step2_intake(game)
+        missing = _with_required_optional_game_inputs(dict(queue.missing_data), game)
+        if not missing:
+            complete_games.append(_complete_game(game))
+            process_games.append(game)
+            continue
+
+        _merge_missing_into(all_missing, missing)
+        if any(category in _SKIPPABLE_MISSING_CATEGORIES for category in missing):
+            skipped_games.append(_skipped_game(game, missing))
+        else:
+            incomplete_games.append(_incomplete_game(game, missing))
+
+    validation_status = "valid"
+    if skipped_games or incomplete_games:
+        validation_status = "partial" if complete_games else "invalid"
+    if not slate.games:
+        validation_status = "no_games"
+
+    process_slate = DailySlate(
+        date=slate.date,
+        games=process_games,
+        watchlist=slate.watchlist,
+        metadata={
+            **slate.metadata,
+            "validation_status": validation_status,
+            "validation_summary": json.dumps(_validation_summary(slate, complete_games, incomplete_games, skipped_games), sort_keys=True),
+        },
+    )
+    missing_data = all_missing if not complete_games else _non_skipped_missing_data(incomplete_games)
+    missing_data = _with_unmatched_game_ids(missing_data, slate)
+    summary = _validation_summary(slate, complete_games, incomplete_games, skipped_games)
+    return _GameValidationPlan(
+        process_slate=process_slate,
+        complete_games=complete_games,
+        incomplete_games=incomplete_games,
+        skipped_games=skipped_games,
+        missing_data=missing_data,
+        validation_summary=summary,
+        warnings=_skipped_game_warnings(skipped_games, incomplete_games),
+        validation_status=validation_status,
+    )
+
+
+def _with_required_optional_game_inputs(missing: dict[str, list[str]], game) -> dict[str, list[str]]:
+    updated = {category: list(values) for category, values in missing.items()}
+    environment = game.environment
+    if environment is None or getattr(environment, "park_hr_factor", 0.0) <= 0.0:
+        updated.setdefault("park_factor", [])
+        if "park factor data" not in updated["park_factor"]:
+            updated["park_factor"].append("park factor data")
+    return {category: values for category, values in updated.items() if values}
+
+
+def _complete_game(game) -> CompleteGame:
+    return CompleteGame(
+        game_id=game.game_id,
+        original_game_id=getattr(game, "original_game_id", "") or game.game_id,
+        teams=[team.team for team in game.teams],
+    )
+
+
+def _incomplete_game(game, missing: dict[str, list[str]]) -> IncompleteGame:
+    return IncompleteGame(
+        game_id=game.game_id,
+        original_game_id=getattr(game, "original_game_id", "") or game.game_id,
+        teams=[team.team for team in game.teams],
+        missing_data=missing,
+    )
+
+
+def _skipped_game(game, missing: dict[str, list[str]]) -> SkippedGame:
+    return SkippedGame(
+        game_id=game.game_id,
+        original_game_id=getattr(game, "original_game_id", "") or game.game_id,
+        teams=[team.team for team in game.teams],
+        skipped_reason=_skip_reasons(missing),
+        missing_data=missing,
+    )
+
+
+def _skip_reasons(missing: dict[str, list[str]]) -> list[str]:
+    reasons = []
+    for category in sorted(_SKIPPABLE_MISSING_CATEGORIES):
+        for value in missing.get(category, []):
+            reason = f"{category}: {value}"
+            if reason not in reasons:
+                reasons.append(reason)
+    return reasons
+
+
+def _validation_summary(
+    slate: DailySlate,
+    complete_games: Sequence[CompleteGame],
+    incomplete_games: Sequence[IncompleteGame],
+    skipped_games: Sequence[SkippedGame],
+) -> dict[str, object]:
+    return {
+        "total_games": slate.total_games,
+        "complete_games": len(complete_games),
+        "incomplete_games": len(incomplete_games),
+        "skipped_games": len(skipped_games),
+        "processed_game_ids": [game.game_id for game in complete_games],
+        "skipped_game_ids": [game.game_id for game in skipped_games],
+    }
+
+
+def _skipped_game_warnings(skipped_games: Sequence[SkippedGame], incomplete_games: Sequence[IncompleteGame]) -> list[str]:
+    warnings = []
+    for game in skipped_games:
+        warnings.append(f"Skipped {game.game_id}: {'; '.join(game.skipped_reason)}")
+    for game in incomplete_games:
+        warnings.append(f"Incomplete {game.game_id}: " + "; ".join(f"{category}: {', '.join(values)}" for category, values in sorted(game.missing_data.items())))
+    return warnings
+
+
+def _non_skipped_missing_data(incomplete_games: Sequence[IncompleteGame]) -> dict[str, list[str]]:
+    merged: dict[str, list[str]] = {}
+    for game in incomplete_games:
+        _merge_missing_into(merged, game.missing_data)
+    return merged
+
+
+def _merge_missing_into(target: dict[str, list[str]], missing: dict[str, list[str]]) -> None:
+    for category, values in missing.items():
+        target.setdefault(category, [])
+        for value in values:
+            if value not in target[category]:
+                target[category].append(value)
+
+
+def _skipped_games_payload(skipped_games: Sequence[SkippedGame]) -> list[dict[str, object]]:
+    return [
+        {
+            "game_id": game.game_id,
+            "original_game_id": game.original_game_id,
+            "teams": list(game.teams),
+            "skipped_reason": list(game.skipped_reason),
+            "missing_data": {category: list(values) for category, values in game.missing_data.items()},
+            "validation_status": game.validation_status,
+        }
+        for game in skipped_games
+    ]
+
+
 def _with_unmatched_game_ids(missing_data: dict[str, list[str]], slate: DailySlate) -> dict[str, list[str]]:
     raw = slate.metadata.get("unmatched_game_ids", "")
     if not raw:
@@ -410,8 +600,30 @@ def _context_with_config(context, user_config: RussWorksUserConfig):
         games_reviewed=context.games_reviewed,
         validation_status=context.validation_status,
         game_ids=list(context.game_ids),
+        skipped_games=list(context.skipped_games),
+        validation_summary=dict(context.validation_summary),
+        warnings=list(context.warnings),
         notes=[*context.notes, f"config_source={user_config.source_path}", f"risk_profile={user_config.risk_profile.profile}"],
         active_config=user_config.to_dict(),
+    )
+
+
+def _context_with_validation_plan(context, validation_plan: _GameValidationPlan):
+    return type(context)(
+        report_date=context.report_date,
+        games_reviewed=len(validation_plan.complete_games),
+        validation_status=validation_plan.validation_status,
+        game_ids=[game.game_id for game in validation_plan.complete_games],
+        skipped_games=_skipped_games_payload(validation_plan.skipped_games),
+        validation_summary=dict(validation_plan.validation_summary),
+        warnings=list(validation_plan.warnings),
+        notes=[
+            *context.notes,
+            f"complete_games={len(validation_plan.complete_games)}",
+            f"skipped_games={len(validation_plan.skipped_games)}",
+            f"incomplete_games={len(validation_plan.incomplete_games)}",
+        ],
+        active_config=dict(context.active_config),
     )
 
 
@@ -421,6 +633,10 @@ def _replace_result(result: DailyRunResult, **changes) -> DailyRunResult:
         "success": result.success,
         "validation_status": result.validation_status,
         "missing_data": result.missing_data,
+        "validation_summary": result.validation_summary,
+        "complete_games": result.complete_games,
+        "incomplete_games": result.incomplete_games,
+        "skipped_games": result.skipped_games,
         "total_batters_reviewed": result.total_batters_reviewed,
         "output_dir": result.output_dir,
         "report_json_path": result.report_json_path,
@@ -442,6 +658,7 @@ def _replace_result(result: DailyRunResult, **changes) -> DailyRunResult:
         "step4_result": result.step4_result,
         "step5_result": result.step5_result,
         "full_report": result.full_report,
+        "warnings": result.warnings,
         "errors": result.errors,
     }
     values.update(changes)

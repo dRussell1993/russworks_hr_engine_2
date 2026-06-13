@@ -48,6 +48,11 @@ class DailySlate:
             games_reviewed=self.total_games,
             validation_status=validation_status,
             game_ids=self.game_ids,
+            validation_summary={
+                "total_games": self.total_games,
+                "complete_games": sum(1 for status in statuses if status),
+                "invalid_games": sum(1 for status in statuses if not status),
+            },
             notes=[f"watchlist_batters={self.watchlist.total_watchlist_batters}"],
         )
 

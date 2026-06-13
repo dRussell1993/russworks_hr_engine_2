@@ -107,6 +107,8 @@ class CommandCenterEngine:
                 provider_health=[*_provider_health_rows(provider_health)],
                 validation_failures=missing,
                 integrity_alerts=_integrity_counts(active_integrity),
+                skipped_games=_skipped_games(daily_run_result),
+                validation_summary=_validation_summary(daily_run_result),
             )
 
         validation_failures = _validation_failures(slate)
@@ -120,6 +122,8 @@ class CommandCenterEngine:
             provider_health=provider_rows,
             validation_failures=validation_failures,
             integrity_alerts=_integrity_counts(active_integrity),
+            skipped_games=_skipped_games(daily_run_result),
+            validation_summary=_validation_summary(daily_run_result),
         )
 
     def formula_health(
@@ -161,7 +165,7 @@ class CommandCenterEngine:
         scheduler_status: SchedulerStatus | None = None,
     ) -> DailyExecutionSummary:
         errors = list(daily_run_result.errors if daily_run_result else [])
-        warnings: list[str] = []
+        warnings: list[str] = list(daily_run_result.warnings if daily_run_result else [])
         if dashboard and dashboard.errors:
             warnings.extend(f"dashboard: {error}" for error in dashboard.errors)
         if recommendations and recommendations.errors:
@@ -391,6 +395,26 @@ def _integrity_path(daily_run_result: DailyRunResult | None, integrity_report: I
     if integrity_report:
         return "data/integrity/integrity_report.json"
     return ""
+
+
+def _skipped_games(daily_run_result: DailyRunResult | None) -> list[dict[str, Any]]:
+    if daily_run_result is None:
+        return []
+    return [
+        {
+            "game_id": game.game_id,
+            "original_game_id": game.original_game_id,
+            "teams": list(game.teams),
+            "skipped_reason": list(game.skipped_reason),
+            "missing_data": dict(game.missing_data),
+            "validation_status": game.validation_status,
+        }
+        for game in daily_run_result.skipped_games
+    ]
+
+
+def _validation_summary(daily_run_result: DailyRunResult | None) -> dict[str, Any]:
+    return dict(daily_run_result.validation_summary) if daily_run_result else {}
 
 
 def _confidence_summary(daily_run_result: DailyRunResult | None) -> dict[str, Any]:

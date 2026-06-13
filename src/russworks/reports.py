@@ -29,6 +29,9 @@ class ReportContext:
     games_reviewed: int
     validation_status: str
     game_ids: List[str] = field(default_factory=list)
+    skipped_games: List[Dict[str, Any]] = field(default_factory=list)
+    validation_summary: Dict[str, Any] = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
     active_config: Dict[str, Any] = field(default_factory=dict)
 
