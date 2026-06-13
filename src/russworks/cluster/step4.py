@@ -16,6 +16,7 @@ _VETERAN_GRADE_RANK = {"Elite": 5, "Strong": 4, "Moderate": 3, "Neutral": 2, "We
 _CATCHER_GRADE_RANK = {"Elite": 5, "Strong": 4, "Moderate": 3, "Neutral": 2, "Weak": 1}
 _PITCH_MIX_GRADE_RANK = {"Elite": 5, "Strong": 4, "Moderate": 3, "Neutral": 2, "Weak": 1}
 _BULLPEN_EXPOSURE_GRADE_RANK = {"Elite": 5, "Strong": 4, "Moderate": 3, "Neutral": 2, "Weak": 1}
+_PARK_FACTOR_GRADE_RANK = {"Elite": 5, "Strong": 4, "Moderate": 3, "Neutral": 2, "Suppressive": 1}
 
 
 class Step4ClusterEngine:
@@ -84,6 +85,9 @@ class Step4ClusterEngine:
         bullpen_exposure_score = max(review.bullpen_exposure_score for review in reviews)
         bullpen_exposure_confidence = mean(review.bullpen_exposure_confidence for review in reviews)
         bullpen_exposure_grade = _top_bullpen_exposure_grade(reviews)
+        park_factor_score = max(review.park_factor_score for review in reviews)
+        park_factor_confidence = mean(review.park_factor_confidence for review in reviews)
+        park_factor_grade = _top_park_factor_grade(reviews)
         tag_grade = grade_score(tag_score)
         cps_grade = grade_score(cps_score)
         total_cluster_score = _cluster_score(reviews, tag_score, cps_score, tag_grade, cps_grade)
@@ -101,6 +105,11 @@ class Step4ClusterEngine:
             review
             for review in ranked_batters
             if review.bullpen_exposure_grade in {"Elite", "Strong", "Moderate"}
+        ]
+        park_factor = [
+            review
+            for review in ranked_batters
+            if review.park_factor_grade in {"Elite", "Strong", "Moderate"}
         ]
         core = ranked_batters[:4]
         secondary = ranked_batters[4:]
@@ -124,6 +133,7 @@ class Step4ClusterEngine:
             veteran_bounce_bats=[review.batter_name for review in veteran_bounce],
             pitch_mix_matchup_bats=[review.batter_name for review in pitch_mix_matchup],
             bullpen_exposure_bats=[review.batter_name for review in bullpen_exposure],
+            park_factor_bats=[review.batter_name for review in park_factor],
             batter_count=len(reviews),
             notes=_cluster_notes(
                 tag_grade,
@@ -135,6 +145,7 @@ class Step4ClusterEngine:
                 catcher_power_grade,
                 pitch_mix_matchup_grade,
                 bullpen_exposure_grade,
+                park_factor_grade,
             ),
             ypi_score=ypi_score,
             ypi_confidence=ypi_confidence,
@@ -151,6 +162,9 @@ class Step4ClusterEngine:
             bullpen_exposure_score=bullpen_exposure_score,
             bullpen_exposure_confidence=bullpen_exposure_confidence,
             bullpen_exposure_grade=bullpen_exposure_grade,
+            park_factor_score=park_factor_score,
+            park_factor_confidence=park_factor_confidence,
+            park_factor_grade=park_factor_grade,
         )
 
     def generate_cluster_report(self, step3_results: BatterReviewResult) -> ClusterRanking:
@@ -216,6 +230,7 @@ def _cluster_score(
     max_catcher = max((review.catcher_power_score for review in reviews), default=0.0)
     max_pitch_mix = max((review.pitch_mix_matchup_score for review in reviews), default=0.0)
     max_bullpen = max((review.bullpen_exposure_score for review in reviews), default=0.0)
+    max_park_factor = max((review.park_factor_score for review in reviews), default=0.0)
     special_depth = min(
         8.0,
         sum(
@@ -227,6 +242,7 @@ def _cluster_score(
             or review.veteran_bounce_flag
             or review.pitch_mix_matchup_grade in {"Elite", "Strong", "Moderate"}
             or review.bullpen_exposure_grade in {"Elite", "Strong", "Moderate"}
+            or review.park_factor_grade in {"Elite", "Strong", "Moderate"}
         ),
     )
     elite_boost = 6.0 if tag_grade in _A_LEVEL_GRADES and cps_grade in _A_LEVEL_GRADES else 0.0
@@ -246,6 +262,7 @@ def _cluster_score(
         + max_catcher * 0.05
         + max_pitch_mix * 0.05
         + max_bullpen * 0.05
+        + max_park_factor * 0.04
         + special_depth
         + elite_boost
     )
@@ -262,6 +279,7 @@ def _batter_cluster_score(review: BatterReview) -> float:
     score += review.catcher_power_score * 0.10
     score += review.pitch_mix_matchup_score * 0.10
     score += review.bullpen_exposure_score * 0.10
+    score += review.park_factor_score * 0.08
     score += 5.0 if review.non_superstar_core_flag else 0.0
     score += 4.0 if review.weak_spot_collision_flag else 0.0
     score += 3.0 if review.ypi_flag else 0.0
@@ -269,6 +287,7 @@ def _batter_cluster_score(review: BatterReview) -> float:
     score += 3.0 if review.veteran_bounce_flag else 0.0
     score += 3.0 if review.pitch_mix_matchup_grade in {"Elite", "Strong", "Moderate"} else 0.0
     score += 3.0 if review.bullpen_exposure_grade in {"Elite", "Strong", "Moderate"} else 0.0
+    score += 2.0 if review.park_factor_grade in {"Elite", "Strong", "Moderate"} else 0.0
     return round(score, 2)
 
 
@@ -290,6 +309,10 @@ def _top_pitch_mix_matchup_grade(reviews: Sequence[BatterReview]) -> str:
 
 def _top_bullpen_exposure_grade(reviews: Sequence[BatterReview]) -> str:
     return max((review.bullpen_exposure_grade for review in reviews), key=lambda grade: _BULLPEN_EXPOSURE_GRADE_RANK.get(grade, 0), default="Weak")
+
+
+def _top_park_factor_grade(reviews: Sequence[BatterReview]) -> str:
+    return max((review.park_factor_grade for review in reviews), key=lambda grade: _PARK_FACTOR_GRADE_RANK.get(grade, 0), default="Neutral")
 
 
 def _opponent_label(reviews: Sequence[BatterReview]) -> str:
@@ -337,6 +360,7 @@ def _cluster_notes(
     catcher_power_grade: str,
     pitch_mix_matchup_grade: str,
     bullpen_exposure_grade: str,
+    park_factor_grade: str,
 ) -> List[str]:
     notes: List[str] = []
     if tag_grade in _A_LEVEL_GRADES and cps_grade in _A_LEVEL_GRADES:
@@ -357,6 +381,8 @@ def _cluster_notes(
         notes.append("Pitch Mix matchup bats identified")
     if any(review.bullpen_exposure_grade in {"Elite", "Strong", "Moderate"} for review in reviews):
         notes.append("Bullpen Exposure bats identified")
+    if any(review.park_factor_grade in {"Elite", "Strong", "Moderate"} for review in reviews):
+        notes.append("Park Factor bats identified")
     if ypi_grade in {"Elite", "Strong", "Emerging"}:
         notes.append(f"{ypi_grade} YPI cluster pressure")
     if veteran_bounce_grade in {"Elite", "Strong", "Moderate"}:
@@ -367,6 +393,10 @@ def _cluster_notes(
         notes.append(f"{pitch_mix_matchup_grade} Pitch Mix cluster pressure")
     if bullpen_exposure_grade in {"Elite", "Strong", "Moderate"}:
         notes.append(f"{bullpen_exposure_grade} Bullpen Exposure cluster pressure")
+    if park_factor_grade in {"Elite", "Strong", "Moderate"}:
+        notes.append(f"{park_factor_grade} Park Factor cluster pressure")
+    if park_factor_grade == "Suppressive":
+        notes.append("Suppressive Park Factor cluster pressure")
     if total_cluster_score >= 90:
         notes.append("Step 4 primary cluster candidate")
     return notes

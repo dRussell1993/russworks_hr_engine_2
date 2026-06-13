@@ -45,6 +45,9 @@ class BatterReview:
     bullpen_exposure_score: float = 0.0
     bullpen_exposure_confidence: float = 0.0
     bullpen_exposure_grade: str = "Weak"
+    park_factor_score: float = 0.0
+    park_factor_confidence: float = 0.0
+    park_factor_grade: str = "Neutral"
 
 
 @dataclass(frozen=True)

@@ -11,6 +11,7 @@ from russworks.scoring.catcher import CatcherPowerEngine, CatcherProfile
 from russworks.scoring.cps import ClusterParticipationInput, ClusterParticipationScore, calculate_cps
 from russworks.scoring.environment import EnvironmentScore, EnvironmentScoreInput, calculate_environment_score
 from russworks.scoring.lstm import LineupSlotTrendInput, calculate_lstm
+from russworks.scoring.parkfactor import ParkFactorEngine, ParkFactorProfile
 from russworks.scoring.pitchmix import BatterPitchProfile, PitchMixEngine, PitchMixProfile
 from russworks.scoring.pvs import PitchVulnerabilityInput, calculate_pvs
 from russworks.scoring.tag import TeamAttackGrade, TeamAttackGradeInput, calculate_tag
@@ -46,6 +47,7 @@ class Step3ReviewEngine:
         self.catcher_power_engine = CatcherPowerEngine()
         self.pitch_mix_engine = PitchMixEngine()
         self.bullpen_exposure_engine = BullpenExposureEngine()
+        self.park_factor_engine = ParkFactorEngine()
 
     def review_all_batters(self, game: GameIntake) -> BatterReviewResult:
         queue = validate_step2_intake(game)
@@ -108,6 +110,7 @@ class Step3ReviewEngine:
             _batter_pitch_profile(batter, opponent_pitcher.name, game),
         )
         bullpen_exposure = self.bullpen_exposure_engine.score_profile(_bullpen_profile(opponent_pitcher, game))
+        park_factor = self.park_factor_engine.score_profile(_park_factor_profile(batter, _environment_with_umpire(game.environment, game)))
 
         ypi_flag = _has_any_tag(batter, {"ypi", "young", "prospect", "rookie", "small sample", "speed-power"}) or ypi.ypi_grade in {"Elite", "Strong", "Emerging"}
         catcher_power_flag = catcher_power.grade in {"Elite", "Strong", "Moderate"}
@@ -118,6 +121,7 @@ class Step3ReviewEngine:
         )
         pitch_mix_matchup_flag = pitch_mix_matchup.grade in {"Elite", "Strong", "Moderate"}
         bullpen_exposure_flag = bullpen_exposure.grade in {"Elite", "Strong", "Moderate"}
+        park_factor_flag = park_factor.grade in {"Elite", "Strong", "Moderate"}
 
         final_score = _final_russ_score(
             batter=batter,
@@ -133,6 +137,7 @@ class Step3ReviewEngine:
             non_superstar_core_flag=non_superstar_core_flag,
             pitch_mix_matchup_flag=pitch_mix_matchup_flag,
             bullpen_exposure_flag=bullpen_exposure_flag,
+            park_factor_flag=park_factor_flag,
         )
         return BatterReview(
             batter_name=batter.name,
@@ -164,6 +169,7 @@ class Step3ReviewEngine:
                 catcher_power.grade,
                 pitch_mix_matchup.grade,
                 bullpen_exposure.grade,
+                park_factor.grade,
             ),
             weak_spot_collision_score=collision.collision_score,
             weak_spot_collision_confidence=collision.collision_confidence,
@@ -183,6 +189,9 @@ class Step3ReviewEngine:
             bullpen_exposure_score=bullpen_exposure.bullpen_exposure_score,
             bullpen_exposure_confidence=bullpen_exposure.confidence,
             bullpen_exposure_grade=bullpen_exposure.grade,
+            park_factor_score=park_factor.park_factor_score,
+            park_factor_confidence=park_factor.confidence,
+            park_factor_grade=park_factor.grade,
         )
 
     def _build_context(self, game: GameIntake, queue: ReviewQueue) -> Step3GameContext:
@@ -443,6 +452,39 @@ def _bullpen_profile(opponent_pitcher: Pitcher, game: GameIntake) -> BullpenProf
     )
 
 
+def _park_factor_profile(batter: BatterIntake, environment: GameEnvironment) -> ParkFactorProfile:
+    handedness = batter.bats.value if hasattr(batter.bats, "value") else str(batter.bats)
+    pull_side = _pull_side_for_handedness(handedness)
+    raw_factor = environment.park_hr_factor
+    left_carry = raw_factor * 8.0
+    center_carry = raw_factor * 6.0
+    right_carry = raw_factor * 8.0
+    park_name = environment.park.lower()
+    if "yankee" in park_name:
+        right_carry += 4.0
+    if "fenway" in park_name:
+        left_carry += 3.0
+    if "coors" in park_name:
+        left_carry += 5.0
+        center_carry += 5.0
+        right_carry += 5.0
+    return ParkFactorProfile(
+        park_name=environment.park,
+        handedness=handedness,
+        pull_side=pull_side,
+        weather_boost=environment.weather_hr_pct + environment.weather_distance_ft / 2.0,
+        roof_status=environment.roof,
+        wind_speed=environment.wind_mph,
+        wind_direction=environment.wind_direction,
+        temperature=environment.temperature_f,
+        humidity=environment.humidity_pct,
+        hr_park_factor=raw_factor,
+        left_field_carry=left_carry,
+        center_field_carry=center_carry,
+        right_field_carry=right_carry,
+    )
+
+
 def _ypi_profile(batter: BatterIntake) -> YPIProfile:
     tags = " ".join(batter.tags).lower()
     is_young = any(key in tags for key in ["ypi", "young", "prospect", "rookie", "small sample", "speed-power"])
@@ -529,6 +571,7 @@ def _final_russ_score(
     non_superstar_core_flag: bool,
     pitch_mix_matchup_flag: bool,
     bullpen_exposure_flag: bool,
+    park_factor_flag: bool,
 ) -> float:
     score = 35.0
     score += batter.hr_pct * 1.15
@@ -544,6 +587,7 @@ def _final_russ_score(
     score += 3.0 if non_superstar_core_flag else 0.0
     score += 4.0 if pitch_mix_matchup_flag else 0.0
     score += 4.0 if bullpen_exposure_flag else 0.0
+    score += 3.0 if park_factor_flag else 0.0
     if _has_any_tag(batter, {"superstar"}) and pvs_score < 5 and lstm_score < 10:
         score -= 3.0
     return round(max(20.0, min(score, 99.0)), 1)
@@ -570,6 +614,7 @@ def _review_notes(
     catcher_power_grade: str,
     pitch_mix_matchup_grade: str,
     bullpen_exposure_grade: str,
+    park_factor_grade: str,
 ) -> List[str]:
     notes = []
     if ypi_flag:
@@ -586,6 +631,8 @@ def _review_notes(
         notes.append(f"Pitch Mix {pitch_mix_matchup_grade}")
     if bullpen_exposure_grade in {"Elite", "Strong", "Moderate"}:
         notes.append(f"Bullpen Exposure {bullpen_exposure_grade}")
+    if park_factor_grade in {"Elite", "Strong", "Moderate"}:
+        notes.append(f"Park Factor {park_factor_grade}")
     return notes
 
 
@@ -601,3 +648,11 @@ def _pitch_tags(tags: List[str]) -> List[str]:
     known = ["fastball", "slider", "changeup", "curveball", "cutter", "sinker", "splitter", "sweeper"]
     tag_text = " ".join(tags).lower()
     return [pitch for pitch in known if pitch in tag_text]
+
+
+def _pull_side_for_handedness(handedness: str) -> str:
+    if handedness == "R":
+        return "left_field"
+    if handedness == "L":
+        return "right_field"
+    return "center_field"
