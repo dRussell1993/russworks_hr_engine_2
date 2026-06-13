@@ -113,7 +113,7 @@ def _slate(date: str = "2026-06-13", *, missing_weak_spots: bool = False) -> Dai
     )
 
 
-def _game(game_id: str, date: str, *, complete: bool = True) -> GameIntake:
+def _game(game_id: str, date: str, *, complete: bool = True, park_hr_factor: float = 7.5) -> GameIntake:
     away = f"A{game_id}"
     home = f"H{game_id}"
     away_pitcher = PitcherIntake(name=f"{away} Starter", team=away, throws=Handedness.R, projected_hr=1.2, projected_hits=5.0, confirmed=True)
@@ -131,7 +131,7 @@ def _game(game_id: str, date: str, *, complete: bool = True) -> GameIntake:
         roof="open",
         weather_hr_pct=6.0,
         weather_distance_ft=8.0,
-        park_hr_factor=7.5,
+        park_hr_factor=park_hr_factor,
         umpire=Umpire(name=f"{game_id} Ump", zone_type="Neutral", run_lean=0.2),
     )
     weak_spots = [] if not complete else [
@@ -215,6 +215,17 @@ def _write_daily_csv_fixture_with_unmatched_matchup(root: Path, date: str) -> No
     day = root / date
     _write_csv(day, "weak_spots", ["game_id", "pitcher_name", "pitch", "weakness_score"], [["SEA@OAK", "KC Starter", "slider", 6]])
     _write_csv(day, "hr_matchups", ["game_id", "batter_name", "pitcher_name", "pitch", "matchup_score"], [["SEA@OAK", "TEX Batter 1", "KC Starter", "slider", 8]])
+
+
+def _write_daily_csv_fixture_without_park_factor(root: Path, date: str) -> None:
+    _write_daily_csv_fixture(root, date)
+    day = root / date
+    _write_csv(
+        day,
+        "weather",
+        ["game_id", "date", "away_team", "home_team", "park", "temperature_f", "wind_mph", "wind_direction", "weather_hr_pct", "weather_distance_ft"],
+        [["tex-kc-1", date, "KC", "TEX", "Globe Life Field", 90, 9, "out", 8, 12]],
+    )
 
 
 def test_phase19_daily_models_are_dataclasses():
@@ -348,6 +359,43 @@ def test_daily_pipeline_fails_when_no_complete_games_remain():
         assert Path(result.command_center_path).exists()
 
 
+def test_missing_park_factor_uses_neutral_fallback_without_skipping_game():
+    with TemporaryDirectory() as temp_dir:
+        output_root = Path(temp_dir) / "outputs"
+        request = DailyRunRequest(date="2026-06-13", output_root=str(output_root))
+        fallback_game = _game("g1-h1-1", "2026-06-13", complete=True, park_hr_factor=0.0)
+        pipeline = RussWorksPipeline(
+            slate_loader=lambda date, request: DailySlate(
+                date=date,
+                games=[fallback_game],
+                watchlist=WatchlistImport(games=[fallback_game], batters=[fallback_game.home_team.batters[0]]),
+            )
+        )
+
+        result = pipeline.run_daily_pipeline("2026-06-13", request)
+
+        assert result.success
+        assert result.validation_status == "valid"
+        assert result.validation_summary["complete_games"] == 1
+        assert result.validation_summary["skipped_games"] == 0
+        assert result.validation_summary["park_factor_fallback_games"] == 1
+        assert result.validation_summary["park_factor_fallback_game_ids"] == ["g1-h1-1"]
+        assert result.skipped_games == []
+        assert "g1-h1-1: Neutral park factor fallback used" in result.warnings
+        assert all(review.park_factor_grade == "Neutral" for review in result.step3_result.reviews)
+        assert all(review.park_factor_confidence < 0.8 for review in result.step3_result.reviews)
+        assert all(any("Neutral park factor fallback used" in reason for reason in review.confidence_reasoning) for review in result.step3_result.reviews)
+        assert all(review.confidence_breakdown["environment_certainty"] <= 65.0 for review in result.step3_result.reviews)
+        assert all(team.confidence_breakdown["environment_certainty"] <= 65.0 for team in result.step4_result.ranked_teams)
+        assert "Neutral park factor fallback used" in result.full_report.context.warnings[0]
+
+        dashboard_payload = json.loads(Path(result.dashboard_path).read_text(encoding="utf-8"))
+        assert "park_factor_fallback_games=1" in dashboard_payload["validation_summaries"][0]
+        command_payload = json.loads(Path(result.command_center_path).read_text(encoding="utf-8"))
+        assert "g1-h1-1: Neutral park factor fallback used" in command_payload["warnings"]
+        assert command_payload["slate_status"]["validation_summary"]["park_factor_fallback_games"] == 1
+
+
 def test_top_level_run_daily_pipeline_uses_csv_data_connectors():
     with TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -363,6 +411,24 @@ def test_top_level_run_daily_pipeline_uses_csv_data_connectors():
         assert Path(result.dashboard_path).exists()
         assert Path(result.command_center_path).exists()
         assert Path(result.web_dashboard_path).exists()
+
+
+def test_csv_daily_pipeline_uses_neutral_park_factor_fallback_when_missing():
+    with TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        data_root = root / "daily"
+        output_root = root / "outputs"
+        _write_daily_csv_fixture_without_park_factor(data_root, "2026-06-13")
+
+        result = run_daily_pipeline("2026-06-13", data_root=str(data_root), output_root=str(output_root))
+
+        assert result.success
+        assert result.validation_status == "valid"
+        assert result.validation_summary["complete_games"] == 1
+        assert result.validation_summary["skipped_games"] == 0
+        assert result.validation_summary["park_factor_fallback_games"] == 1
+        assert "tex-kc-1: Neutral park factor fallback used" in result.warnings
+        assert Path(result.report_json_path).exists()
 
 
 def test_daily_pipeline_validation_output_includes_unmatched_game_ids():
