@@ -293,24 +293,29 @@ def _cluster_score(
     if not elite_boost and (tag_grade in _A_LEVEL_GRADES or cps_grade in _A_LEVEL_GRADES):
         elite_boost = 3.0
 
-    score = (
-        tag_score * 0.45
-        + cps_score * 0.55
-        + (avg_russ - 60.0) * 0.15
-        + avg_pvs * 0.35
-        + avg_lstm * 0.18
-        + avg_environment * 0.25
-        + avg_umpire * 0.10
-        + max_ypi * 0.06
-        + max_veteran * 0.05
-        + max_catcher * 0.05
-        + max_pitch_mix * 0.05
-        + max_bullpen * 0.05
-        + max_park_factor * 0.04
-        + special_depth
-        + elite_boost
-    )
-    return round(max(20.0, min(score, 100.0)), 2)
+    score = 14.0
+    score += _cluster_component(tag_score, baseline=55.0, span=45.0, points=16.0)
+    score += _cluster_component(cps_score, baseline=55.0, span=45.0, points=18.0)
+    score += _cluster_component(avg_russ, baseline=48.0, span=44.0, points=12.0)
+    score += min(6.0, max(0.0, avg_pvs) * 0.34)
+    score += min(4.0, max(0.0, avg_lstm) * 0.12)
+    score += _cluster_component(avg_environment, baseline=0.0, span=25.0, points=3.0)
+    score += _cluster_component(avg_umpire, baseline=0.0, span=18.0, points=1.5)
+    score += min(2.2, max_ypi * 0.018)
+    score += min(2.0, max_veteran * 0.016)
+    score += min(2.0, max_catcher * 0.016)
+    score += min(2.0, max_pitch_mix * 0.016)
+    score += min(2.0, max_bullpen * 0.016)
+    score += min(1.8, max_park_factor * 0.015)
+    score += min(3.5, special_depth * 0.38)
+    score += elite_boost * 0.45
+    return round(max(20.0, min(score, 94.0)), 2)
+
+
+def _cluster_component(value: float, *, baseline: float, span: float, points: float) -> float:
+    if span <= 0:
+        return 0.0
+    return max(0.0, min(points, (value - baseline) / span * points))
 
 
 def _batter_cluster_score(review: BatterReview) -> float:
@@ -383,15 +388,15 @@ def _hidden_cluster_beneficiary(
 
 
 def _strength_label(score: float) -> str:
-    if score >= 90:
-        return "elite"
-    if score >= 80:
-        return "strong"
-    if score >= 70:
-        return "viable"
-    if score >= 60:
-        return "thin"
-    return "weak"
+    if score >= 88:
+        return "Nuclear Cluster"
+    if score >= 76:
+        return "Strong Cluster"
+    if score >= 64:
+        return "Value Cluster"
+    if score >= 52:
+        return "Thin Cluster"
+    return "Fade Cluster"
 
 
 def _cluster_notes(
@@ -441,6 +446,6 @@ def _cluster_notes(
         notes.append(f"{park_factor_grade} Park Factor cluster pressure")
     if park_factor_grade == "Suppressive":
         notes.append("Suppressive Park Factor cluster pressure")
-    if total_cluster_score >= 90:
+    if total_cluster_score >= 88:
         notes.append("Step 4 primary cluster candidate")
     return notes

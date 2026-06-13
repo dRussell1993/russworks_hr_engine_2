@@ -342,6 +342,8 @@ def _reports_generated(daily_run_result: DailyRunResult | None) -> list[str]:
         reports.append("full_report")
     if daily_run_result.report_json_path:
         reports.append(daily_run_result.report_json_path)
+    if getattr(daily_run_result, "operator_report_path", ""):
+        reports.append(daily_run_result.operator_report_path)
     return reports
 
 
@@ -358,6 +360,8 @@ def _exports_generated(
     exports = []
     if daily_run_result and daily_run_result.report_json_path:
         exports.append(daily_run_result.report_json_path)
+    if daily_run_result and getattr(daily_run_result, "operator_report_path", ""):
+        exports.append(daily_run_result.operator_report_path)
     if dashboard:
         exports.append("data/dashboard/dashboard.json")
     if recommendations:

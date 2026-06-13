@@ -41,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
                 "total_batters_reviewed": result.total_batters_reviewed,
                 "output_dir": result.output_dir,
                 "report_json_path": result.report_json_path,
+                "operator_report_path": result.operator_report_path,
                 "dashboard_path": result.dashboard_path,
                 "command_center_path": result.command_center_path,
                 "web_dashboard_path": result.web_dashboard_path,

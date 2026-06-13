@@ -67,6 +67,7 @@ class DailyRunResult:
     total_batters_reviewed: int = 0
     output_dir: str = ""
     report_json_path: str = ""
+    operator_report_path: str = ""
     integrity_report_path: str = ""
     portfolio_report_path: str = ""
     diversification_report_path: str = ""
