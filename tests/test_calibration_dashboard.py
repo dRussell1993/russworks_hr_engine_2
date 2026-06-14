@@ -10,7 +10,7 @@ from russworks.backtesting import (
     DailyBacktestSummary,
     HistoricalBacktestEngine,
 )
-from russworks.calibration import CalibrationMetric, CalibrationResult, FormulaCalibrationEngine
+from russworks.calibration import CalibrationMetric, CalibrationRecommendation, CalibrationResult, FormulaCalibrationEngine
 from russworks.dashboard import (
     ArchetypePerformance,
     CalibrationDashboard,
@@ -20,6 +20,8 @@ from russworks.dashboard import (
     build_calibration_dashboard,
 )
 from russworks.postmortem import (
+    ActualHomeRunEntry,
+    AdjustmentLogEntry,
     FalsePositiveEntry,
     LoserLogEntry,
     PostMortemEngine,
@@ -194,3 +196,129 @@ def test_existing_engines_can_build_dashboards():
     assert calibration_dashboard.success
     assert backtest_dashboard.success
     assert postmortem_dashboard.success
+
+
+def test_postmortem_dashboard_writes_non_zero_operations_summary():
+    report = PostMortemReport(
+        actual_home_runs=[
+            ActualHomeRunEntry("TEX", "Winner One", "Slider", "Pitcher", 1, 101.0, 400.0, 25.0),
+            ActualHomeRunEntry("KC", "Winner Two", "Fastball", "Pitcher", 2, 102.0, 410.0, 26.0),
+        ],
+        winner_log=[WinnerLogEntry("TEX", "Winner One", "Slider", "Pitcher", 1, 101.0, 400.0, 25.0)],
+        loser_log=[LoserLogEntry("TEX", "Miss One", "Slip", "core", "A", "A", 90.0, "core")],
+        false_positive_log=[FalsePositiveEntry("TEX", "Miss One", "Slip", "core", "Miss", ["TAG"])],
+        adjustment_log=[AdjustmentLogEntry("TAG", "down", "Miss pressure", 1, "Review")],
+    )
+    calibration = CalibrationResult(
+        recommended_adjustments=[
+            CalibrationRecommendation("TAG", "review", 0.0, "medium", "Review TAG pressure")
+        ]
+    )
+    dashboard = CalibrationDashboardEngine().build_dashboard(
+        postmortem_reports=[report],
+        calibration_result=calibration,
+    )
+
+    with TemporaryDirectory() as temp_dir:
+        path = CalibrationDashboardEngine().export_json(dashboard, Path(temp_dir) / "data" / "dashboard")
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+
+    assert payload["operations_summary"]["hr_events_acquired"] == 2
+    assert payload["operations_summary"]["winners"] == 1
+    assert payload["operations_summary"]["misses"] == 1
+    assert payload["operations_summary"]["false_positives"] == 1
+    assert payload["operations_summary"]["adjustments"] == 1
+    assert payload["operations_summary"]["calibration_recommendations"] == 1
+
+
+def test_later_daily_dashboard_export_does_not_zero_existing_operations_summary():
+    with TemporaryDirectory() as temp_dir:
+        dashboard_dir = Path(temp_dir) / "data" / "dashboard"
+        dashboard_dir.mkdir(parents=True)
+        existing = CalibrationDashboard(
+            generated_at="2026-06-14T06:02:00Z",
+            operations_summary={
+                "last_slate_run": "2026-06-13T10:00:00Z",
+                "last_postmortem_run": "2026-06-14T06:02:00Z",
+                "last_successful_acquisition": "2026-06-14T06:02:00Z",
+                "hr_events_acquired": 45,
+                "winners": 45,
+                "misses": 24,
+                "false_positives": 24,
+                "adjustments": 22,
+                "calibration_recommendations": 22,
+            },
+        )
+        CalibrationDashboardEngine().export_json(existing, dashboard_dir)
+
+        daily_dashboard = CalibrationDashboardEngine().build_dashboard()
+        path = CalibrationDashboardEngine().export_json(daily_dashboard, dashboard_dir)
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+
+    assert payload["operations_summary"]["hr_events_acquired"] == 45
+    assert payload["operations_summary"]["winners"] == 45
+    assert payload["operations_summary"]["misses"] == 24
+    assert payload["operations_summary"]["false_positives"] == 24
+    assert payload["operations_summary"]["adjustments"] == 22
+    assert payload["operations_summary"]["calibration_recommendations"] == 22
+
+
+def test_new_postmortem_artifacts_update_operations_summary():
+    with TemporaryDirectory() as temp_dir:
+        data_root = Path(temp_dir) / "data"
+        dashboard_dir = data_root / "dashboard"
+        dashboard_dir.mkdir(parents=True)
+        CalibrationDashboardEngine().export_json(
+            CalibrationDashboard(
+                generated_at="2026-06-14T06:02:00Z",
+                operations_summary={
+                    "hr_events_acquired": 2,
+                    "winners": 1,
+                    "misses": 1,
+                    "false_positives": 1,
+                    "adjustments": 1,
+                    "calibration_recommendations": 1,
+                },
+            ),
+            dashboard_dir,
+        )
+        postmortem_dir = data_root / "postmortem" / "2026-06-14"
+        postmortem_dir.mkdir(parents=True)
+        _write_json(
+            postmortem_dir / "run_metadata.json",
+            {
+                "date": "2026-06-14",
+                "executed_at": "2026-06-15T06:02:00Z",
+                "actual_home_runs_loaded": 4,
+            },
+        )
+        _write_json(
+            postmortem_dir / "postmortem_report.json",
+            {
+                "actual_home_runs": [{}, {}, {}, {}],
+                "winner_log": [{}, {}, {}, {}],
+                "loser_log": [{}, {}, {}],
+                "false_positive_log": [{}, {}],
+                "adjustment_log": [{}, {}],
+            },
+        )
+        _write_json(
+            postmortem_dir / "calibration_result.json",
+            {"recommended_adjustments": [{}, {}, {}]},
+        )
+
+        path = CalibrationDashboardEngine().export_json(CalibrationDashboardEngine().build_dashboard(), dashboard_dir)
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+
+    assert payload["operations_summary"]["last_postmortem_run"] == "2026-06-15T06:02:00Z"
+    assert payload["operations_summary"]["last_successful_acquisition"] == "2026-06-15T06:02:00Z"
+    assert payload["operations_summary"]["hr_events_acquired"] == 4
+    assert payload["operations_summary"]["winners"] == 4
+    assert payload["operations_summary"]["misses"] == 3
+    assert payload["operations_summary"]["false_positives"] == 2
+    assert payload["operations_summary"]["adjustments"] == 2
+    assert payload["operations_summary"]["calibration_recommendations"] == 3
+
+
+def _write_json(path: Path, payload) -> None:
+    path.write_text(json.dumps(payload), encoding="utf-8")

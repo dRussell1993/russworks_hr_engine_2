@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import replace
 from datetime import datetime
+import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
 from russworks.backtesting import BacktestResult, DailyBacktestSummary
 from russworks.calibration import CalibrationMetric, CalibrationResult
@@ -47,6 +49,19 @@ _MODULE_ORDER = [
     "Pitch Mix Matchup",
     "Bullpen Exposure",
     "Park Factor V2",
+]
+
+
+_OPERATIONS_KEYS = [
+    "last_slate_run",
+    "last_postmortem_run",
+    "last_successful_acquisition",
+    "hr_events_acquired",
+    "winners",
+    "misses",
+    "false_positives",
+    "adjustments",
+    "calibration_recommendations",
 ]
 
 
@@ -116,6 +131,7 @@ class CalibrationDashboardEngine:
     def export_json(self, dashboard: CalibrationDashboard, output_dir: str | Path) -> Path:
         output_path = Path(output_dir) / "dashboard.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        dashboard = _with_persisted_operations_summary(dashboard, output_path)
         output_path.write_text(dashboard.to_json(), encoding="utf-8")
         return output_path
 
@@ -444,7 +460,7 @@ def _operations_summary(
         "last_slate_run": "",
         "last_postmortem_run": "",
         "last_successful_acquisition": "",
-        "hr_events_acquired": 0,
+        "hr_events_acquired": sum(len(report.actual_home_runs) for report in postmortem_reports),
         "winners": sum(len(report.winner_log) for report in postmortem_reports),
         "misses": sum(len(report.loser_log) for report in postmortem_reports),
         "false_positives": sum(len(report.false_positive_log) for report in postmortem_reports),
@@ -468,6 +484,164 @@ def _operations_summary(
             if isinstance(value, (int, float)) and value:
                 summary[key] = int(value)
     return summary
+
+
+def _with_persisted_operations_summary(dashboard: CalibrationDashboard, output_path: Path) -> CalibrationDashboard:
+    data_root = output_path.parent.parent
+    merged = _merge_operations_summaries(
+        _empty_operations_summary(),
+        _existing_dashboard_operations(output_path),
+        _scheduler_history_operations(data_root),
+        _latest_postmortem_operations(data_root),
+        dashboard.operations_summary,
+    )
+    if merged == dashboard.operations_summary:
+        return dashboard
+    return replace(dashboard, operations_summary=merged)
+
+
+def _empty_operations_summary() -> dict[str, object]:
+    return {
+        "last_slate_run": "",
+        "last_postmortem_run": "",
+        "last_successful_acquisition": "",
+        "hr_events_acquired": 0,
+        "winners": 0,
+        "misses": 0,
+        "false_positives": 0,
+        "adjustments": 0,
+        "calibration_recommendations": 0,
+    }
+
+
+def _existing_dashboard_operations(path: Path) -> dict[str, object]:
+    payload = _read_json(path)
+    return _operations_from_mapping(_mapping(payload.get("operations_summary")))
+
+
+def _scheduler_history_operations(data_root: Path) -> dict[str, object]:
+    history = _read_json_list(data_root / "scheduler" / "run_history.json")
+    merged = _empty_operations_summary()
+    for entry in history:
+        metadata = _mapping(entry.get("metadata"))
+        generated_at = str(entry.get("generated_at", ""))
+        merged = _merge_operations_summaries(merged, _operations_from_metadata(metadata, generated_at))
+    return merged
+
+
+def _latest_postmortem_operations(data_root: Path) -> dict[str, object]:
+    postmortem_root = data_root / "postmortem"
+    if not postmortem_root.exists():
+        return {}
+    date_dirs = sorted([path for path in postmortem_root.iterdir() if path.is_dir()], key=lambda item: item.stat().st_mtime)
+    merged = _empty_operations_summary()
+    for date_dir in date_dirs:
+        merged = _merge_operations_summaries(merged, _postmortem_directory_operations(date_dir))
+    return merged
+
+
+def _postmortem_directory_operations(date_dir: Path) -> dict[str, object]:
+    metadata = _read_json(date_dir / "run_metadata.json")
+    report = _read_json(date_dir / "postmortem_report.json")
+    calibration = _read_json(date_dir / "calibration_result.json")
+    generated_at = str(metadata.get("executed_at") or _mtime_text(date_dir / "run_metadata.json") or _mtime_text(date_dir / "postmortem_report.json"))
+    summary = _operations_from_metadata(_mapping(metadata), generated_at)
+    if report:
+        summary = _merge_operations_summaries(summary, _operations_from_postmortem_report(report))
+    if calibration:
+        summary = _merge_operations_summaries(summary, _operations_from_calibration(calibration))
+    return summary
+
+
+def _operations_from_metadata(metadata: Mapping[str, Any], generated_at: str = "") -> dict[str, object]:
+    return {
+        "last_slate_run": metadata.get("last_slate_run", ""),
+        "last_postmortem_run": metadata.get("last_postmortem_run") or generated_at,
+        "last_successful_acquisition": metadata.get("last_successful_acquisition") or (generated_at if _int_value(metadata.get("actual_home_runs_loaded") or metadata.get("hr_events_acquired")) else ""),
+        "hr_events_acquired": _int_value(metadata.get("hr_events_acquired") or metadata.get("actual_home_runs_loaded")),
+        "winners": _int_value(metadata.get("winners")),
+        "misses": _int_value(metadata.get("misses")),
+        "false_positives": _int_value(metadata.get("false_positives")),
+        "adjustments": _int_value(metadata.get("adjustments")),
+        "calibration_recommendations": _int_value(metadata.get("calibration_recommendations")),
+    }
+
+
+def _operations_from_postmortem_report(report: Mapping[str, Any]) -> dict[str, object]:
+    return {
+        "winners": len(report.get("winner_log", []) or []),
+        "misses": len(report.get("loser_log", []) or []),
+        "false_positives": len(report.get("false_positive_log", []) or []),
+        "adjustments": len(report.get("adjustment_log", []) or []),
+        "hr_events_acquired": len(report.get("actual_home_runs", []) or []),
+    }
+
+
+def _operations_from_calibration(calibration: Mapping[str, Any]) -> dict[str, object]:
+    return {
+        "calibration_recommendations": len(calibration.get("recommended_adjustments", []) or []),
+    }
+
+
+def _operations_from_mapping(value: Mapping[str, Any]) -> dict[str, object]:
+    return {key: value.get(key, _empty_operations_summary()[key]) for key in _OPERATIONS_KEYS}
+
+
+def _merge_operations_summaries(*summaries: Mapping[str, Any]) -> dict[str, object]:
+    merged = _empty_operations_summary()
+    for summary in summaries:
+        for key in _OPERATIONS_KEYS:
+            value = summary.get(key)
+            if _meaningful_operation_value(value):
+                merged[key] = value
+    return merged
+
+
+def _meaningful_operation_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return value > 0
+    if isinstance(value, str):
+        return bool(value.strip())
+    return value is not None
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _read_json_list(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _mtime_text(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return datetime.utcfromtimestamp(path.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
 
 
 def _validation_summaries(summary: dict[str, object] | None) -> list[str]:
