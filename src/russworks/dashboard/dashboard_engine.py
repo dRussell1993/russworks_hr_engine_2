@@ -18,6 +18,8 @@ from russworks.self_learning import SelfLearningReport
 from russworks.simulation import SimulationResult
 
 from .dashboard_models import (
+    AccuracyBucket,
+    AccuracyReview,
     ArchetypePerformance,
     CalibrationDashboard,
     ModulePerformance,
@@ -81,6 +83,7 @@ class CalibrationDashboardEngine:
         scheduler_status: SchedulerStatus | None = None,
         validation_summary: dict[str, object] | None = None,
         skipped_games: Sequence[object] = (),
+        report_payload: Mapping[str, Any] | None = None,
     ) -> CalibrationDashboard:
         modules = _module_performances(calibration_result, backtest_result)
         top = sorted(modules, key=lambda item: (item.confidence_accuracy, item.hit_rate, item.wins), reverse=True)[:5]
@@ -97,6 +100,7 @@ class CalibrationDashboardEngine:
         self_learning_summaries = _self_learning_summaries(self_learning_report)
         scheduler_summaries = _scheduler_summaries(scheduler_status)
         operations_summary = _operations_summary(scheduler_status, postmortem_reports, calibration_result)
+        accuracy_review = _accuracy_review(postmortem_reports, calibration_result, report_payload)
         validation_summaries = _validation_summaries(validation_summary)
         skipped_game_summaries = _skipped_game_summaries(skipped_games)
         errors = []
@@ -123,6 +127,7 @@ class CalibrationDashboardEngine:
             self_learning_summaries=self_learning_summaries,
             scheduler_summaries=scheduler_summaries,
             operations_summary=operations_summary,
+            accuracy_review=accuracy_review,
             validation_summaries=validation_summaries,
             skipped_game_summaries=skipped_game_summaries,
             errors=errors,
@@ -202,9 +207,10 @@ def build_calibration_dashboard(
     diversification_result: DiversificationResult | None = None,
     simulation_result: SimulationResult | None = None,
     self_learning_report: SelfLearningReport | None = None,
-    scheduler_status: SchedulerStatus | None = None,
-    validation_summary: dict[str, object] | None = None,
-    skipped_games: Sequence[object] = (),
+        scheduler_status: SchedulerStatus | None = None,
+        validation_summary: dict[str, object] | None = None,
+        skipped_games: Sequence[object] = (),
+        report_payload: Mapping[str, Any] | None = None,
 ) -> CalibrationDashboard:
     return CalibrationDashboardEngine().build_dashboard(
         calibration_result=calibration_result,
@@ -219,6 +225,7 @@ def build_calibration_dashboard(
         scheduler_status=scheduler_status,
         validation_summary=validation_summary,
         skipped_games=skipped_games,
+        report_payload=report_payload,
     )
 
 
@@ -355,6 +362,243 @@ def _archetype_performance(postmortem_reports: Sequence[PostMortemReport]) -> li
             )
         )
     return sorted(performances, key=lambda item: (item.hit_rate, item.wins), reverse=True)
+
+
+def _accuracy_review(
+    postmortem_reports: Sequence[PostMortemReport],
+    calibration_result: CalibrationResult | None,
+    report_payload: Mapping[str, Any] | None,
+) -> AccuracyReview | None:
+    if not postmortem_reports:
+        return None
+    actual_counts: Counter[tuple[str, str]] = Counter()
+    winners = []
+    losers = []
+    false_positives = []
+    adjustments = []
+    recommendations = []
+    for report in postmortem_reports:
+        actual_counts.update(_entry_key(entry.team, entry.batter) for entry in report.actual_home_runs)
+        winners.extend(report.winner_log)
+        losers.extend(report.loser_log)
+        false_positives.extend(report.false_positive_log)
+        adjustments.extend(report.adjustment_log)
+        recommendations.extend(report.calibration_recommendations)
+
+    modules = _module_performances(calibration_result, None) if calibration_result else []
+    best_modules = sorted(modules, key=lambda item: (item.hit_rate, item.wins, item.confidence_accuracy), reverse=True)[:5]
+    worst_modules = sorted(modules, key=lambda item: (item.hit_rate, -item.false_positives, item.confidence_accuracy))[:5]
+    hit_total = sum(actual_counts.values())
+    miss_total = len(losers)
+    payload = _mapping(report_payload)
+    return AccuracyReview(
+        hr_events_acquired=hit_total,
+        winners=len(winners),
+        misses=miss_total,
+        false_positives=len(false_positives),
+        hit_rate=_rate(len([winner for winner in winners if winner.source == "step5_hit"]), max(1, len(winners) + miss_total)),
+        hit_rate_by_russ_tier=_batter_accuracy_buckets(_step3_rows(payload), actual_counts, "score_band", fallback_key="tier"),
+        hit_rate_by_confidence_grade=_batter_accuracy_buckets(_step3_rows(payload), actual_counts, "confidence_grade"),
+        hit_rate_by_team_cluster_grade=_cluster_accuracy_buckets(_step4_rows(payload), actual_counts),
+        hit_rate_by_slip_type=_slip_accuracy_buckets(_step5_slips(payload), actual_counts),
+        top_false_positives=_top_false_positives(losers, false_positives),
+        top_false_negatives=_top_false_negatives(winners, payload),
+        best_performing_modules=best_modules,
+        worst_performing_modules=worst_modules,
+        top_calibration_recommendations=_top_calibration_recommendations(calibration_result, recommendations, adjustments),
+    )
+
+
+def _step3_rows(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [row for row in _mapping(payload.get("step3")).get("batter_reviews", []) or [] if isinstance(row, Mapping)]
+
+
+def _step4_rows(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [row for row in _mapping(payload.get("step4")).get("team_rankings", []) or [] if isinstance(row, Mapping)]
+
+
+def _step5_slips(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    step5 = _mapping(payload.get("step5"))
+    slips: list[Mapping[str, Any]] = []
+    for key in ["core_slips", "non_superstar_core_slips", "balanced_slips", "chaos_slips", "contrarian_slips"]:
+        slips.extend(row for row in step5.get(key, []) or [] if isinstance(row, Mapping))
+    return slips
+
+
+def _batter_accuracy_buckets(
+    rows: Sequence[Mapping[str, Any]],
+    actual_counts: Counter[tuple[str, str]],
+    key: str,
+    *,
+    fallback_key: str = "",
+) -> list[AccuracyBucket]:
+    groups: dict[str, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        if key == "confidence_grade":
+            label = str(_mapping(row.get("confidence")).get("grade", "") or "Unknown")
+        else:
+            label = str(row.get(key) or (row.get(fallback_key) if fallback_key else "") or "Unknown")
+        groups.setdefault(label, []).append(row)
+    return _bucket_rows(
+        [
+            (
+                label,
+                len(group),
+                sum(actual_counts.get(_entry_key(str(row.get("team", "")), str(row.get("batter", ""))), 0) for row in group),
+            )
+            for label, group in groups.items()
+        ]
+    )
+
+
+def _cluster_accuracy_buckets(
+    rows: Sequence[Mapping[str, Any]],
+    actual_counts: Counter[tuple[str, str]],
+) -> list[AccuracyBucket]:
+    grouped: dict[str, tuple[int, int]] = {}
+    for row in rows:
+        label = str(row.get("cluster_strength_label") or _cluster_grade(row) or "Unknown")
+        team = str(row.get("team", ""))
+        appearances, hits = grouped.get(label, (0, 0))
+        team_hits = sum(count for (actual_team, _), count in actual_counts.items() if actual_team == team.lower())
+        grouped[label] = (appearances + int(row.get("batter_count", 0) or 0), hits + team_hits)
+    return _bucket_rows([(label, appearances, hits) for label, (appearances, hits) in grouped.items()])
+
+
+def _slip_accuracy_buckets(
+    slips: Sequence[Mapping[str, Any]],
+    actual_counts: Counter[tuple[str, str]],
+) -> list[AccuracyBucket]:
+    grouped: dict[str, tuple[int, int]] = {}
+    for slip in slips:
+        label = str(slip.get("slip_type", "") or "Unknown")
+        legs = [leg for leg in slip.get("legs", []) or [] if isinstance(leg, Mapping)]
+        appearances, hits = grouped.get(label, (0, 0))
+        grouped[label] = (
+            appearances + len(legs),
+            hits + sum(actual_counts.get(_entry_key(str(leg.get("team", "")), str(leg.get("batter", ""))), 0) for leg in legs),
+        )
+    return _bucket_rows([(label, appearances, hits) for label, (appearances, hits) in grouped.items()])
+
+
+def _bucket_rows(values: Sequence[tuple[str, int, int]]) -> list[AccuracyBucket]:
+    buckets = [
+        AccuracyBucket(
+            label=label,
+            appearances=appearances,
+            hits=hits,
+            misses=max(0, appearances - hits),
+            hit_rate=_rate(hits, appearances),
+        )
+        for label, appearances, hits in values
+    ]
+    return sorted(buckets, key=lambda item: (item.hit_rate, item.hits, item.appearances), reverse=True)
+
+
+def _top_false_positives(
+    losers: Sequence[Any],
+    false_positives: Sequence[Any],
+) -> list[dict[str, Any]]:
+    loser_index = {
+        (loser.team.lower(), loser.batter.lower(), loser.slip_name, loser.slip_type): loser
+        for loser in losers
+    }
+    rows = []
+    for entry in false_positives:
+        loser = loser_index.get((entry.team.lower(), entry.batter.lower(), entry.slip_name, entry.slip_type))
+        rows.append(
+            {
+                "batter": entry.batter,
+                "team": entry.team,
+                "slip_name": entry.slip_name,
+                "slip_type": entry.slip_type,
+                "russ_score": getattr(loser, "russ_score", 0.0),
+                "reason": entry.reason,
+                "overweighted_modules": list(entry.overweighted_modules),
+            }
+        )
+    return sorted(rows, key=lambda row: float(row.get("russ_score", 0.0) or 0.0), reverse=True)[:10]
+
+
+def _top_false_negatives(
+    winners: Sequence[Any],
+    report_payload: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    step3 = {
+        _entry_key(str(row.get("team", "")), str(row.get("batter", ""))): row
+        for row in _step3_rows(report_payload)
+    }
+    rows = []
+    for winner in winners:
+        if winner.source == "step5_hit":
+            continue
+        review = step3.get(_entry_key(winner.team, winner.batter), {})
+        rows.append(
+            {
+                "batter": winner.batter,
+                "team": winner.team,
+                "pitcher": winner.pitcher,
+                "pitch": winner.pitch,
+                "inning": winner.inning,
+                "exit_velocity": winner.exit_velocity,
+                "distance": winner.distance,
+                "russ_score": float(review.get("russ_score", 0.0) or 0.0),
+                "tier": review.get("score_band") or review.get("tier", ""),
+                "confidence": _mapping(review.get("confidence")).get("grade", ""),
+            }
+        )
+    return sorted(rows, key=lambda row: float(row.get("russ_score", 0.0) or 0.0), reverse=True)[:10]
+
+
+def _top_calibration_recommendations(
+    calibration_result: CalibrationResult | None,
+    postmortem_recommendations: Sequence[Any],
+    adjustments: Sequence[Any],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if calibration_result:
+        for item in calibration_result.recommended_adjustments:
+            rows.append(
+                {
+                    "module": item.module,
+                    "action": item.action,
+                    "confidence": item.confidence,
+                    "reasoning": item.rationale,
+                    "source": "calibration_result",
+                }
+            )
+    for item in postmortem_recommendations:
+        rows.append(
+            {
+                "module": item.module,
+                "action": item.action,
+                "confidence": item.confidence,
+                "reasoning": item.rationale,
+                "source": "postmortem_report",
+            }
+        )
+    if rows:
+        return rows[:10]
+    return [
+        {
+            "module": item.module,
+            "action": item.direction,
+            "confidence": "low",
+            "reasoning": item.reason,
+            "source": "adjustment_log",
+        }
+        for item in adjustments[:10]
+    ]
+
+
+def _cluster_grade(row: Mapping[str, Any]) -> str:
+    tag = str(row.get("tag_grade", ""))
+    cps = str(row.get("cps_grade", ""))
+    return f"TAG {tag} / CPS {cps}".strip()
+
+
+def _entry_key(team: str, batter: str) -> tuple[str, str]:
+    return (team.strip().lower(), batter.strip().lower())
 
 
 def _summaries(
@@ -495,9 +739,10 @@ def _with_persisted_operations_summary(dashboard: CalibrationDashboard, output_p
         _latest_postmortem_operations(data_root),
         dashboard.operations_summary,
     )
-    if merged == dashboard.operations_summary:
+    accuracy_review = dashboard.accuracy_review or _existing_dashboard_accuracy(output_path)
+    if merged == dashboard.operations_summary and accuracy_review == dashboard.accuracy_review:
         return dashboard
-    return replace(dashboard, operations_summary=merged)
+    return replace(dashboard, operations_summary=merged, accuracy_review=accuracy_review)
 
 
 def _empty_operations_summary() -> dict[str, object]:
@@ -517,6 +762,61 @@ def _empty_operations_summary() -> dict[str, object]:
 def _existing_dashboard_operations(path: Path) -> dict[str, object]:
     payload = _read_json(path)
     return _operations_from_mapping(_mapping(payload.get("operations_summary")))
+
+
+def _existing_dashboard_accuracy(path: Path) -> AccuracyReview | None:
+    payload = _read_json(path)
+    accuracy = _mapping(payload.get("accuracy_review"))
+    if not accuracy:
+        return None
+    return AccuracyReview(
+        hr_events_acquired=_int_value(accuracy.get("hr_events_acquired")),
+        winners=_int_value(accuracy.get("winners")),
+        misses=_int_value(accuracy.get("misses")),
+        false_positives=_int_value(accuracy.get("false_positives")),
+        hit_rate=float(accuracy.get("hit_rate", 0.0) or 0.0),
+        hit_rate_by_russ_tier=_accuracy_buckets_from_json(accuracy.get("hit_rate_by_russ_tier")),
+        hit_rate_by_confidence_grade=_accuracy_buckets_from_json(accuracy.get("hit_rate_by_confidence_grade")),
+        hit_rate_by_team_cluster_grade=_accuracy_buckets_from_json(accuracy.get("hit_rate_by_team_cluster_grade")),
+        hit_rate_by_slip_type=_accuracy_buckets_from_json(accuracy.get("hit_rate_by_slip_type")),
+        top_false_positives=list(accuracy.get("top_false_positives", []) or []),
+        top_false_negatives=list(accuracy.get("top_false_negatives", []) or []),
+        best_performing_modules=_module_performance_from_json(accuracy.get("best_performing_modules")),
+        worst_performing_modules=_module_performance_from_json(accuracy.get("worst_performing_modules")),
+        top_calibration_recommendations=list(accuracy.get("top_calibration_recommendations", []) or []),
+        errors=list(accuracy.get("errors", []) or []),
+    )
+
+
+def _accuracy_buckets_from_json(value: Any) -> list[AccuracyBucket]:
+    return [
+        AccuracyBucket(
+            label=str(item.get("label", "")),
+            appearances=_int_value(item.get("appearances")),
+            hits=_int_value(item.get("hits")),
+            misses=_int_value(item.get("misses")),
+            hit_rate=float(item.get("hit_rate", 0.0) or 0.0),
+        )
+        for item in (value or [])
+        if isinstance(item, Mapping)
+    ]
+
+
+def _module_performance_from_json(value: Any) -> list[ModulePerformance]:
+    return [
+        ModulePerformance(
+            module=str(item.get("module", "")),
+            appearances=_int_value(item.get("appearances")),
+            wins=_int_value(item.get("wins")),
+            losses=_int_value(item.get("losses")),
+            hit_rate=float(item.get("hit_rate", 0.0) or 0.0),
+            false_positives=_int_value(item.get("false_positives")),
+            false_negatives=_int_value(item.get("false_negatives")),
+            confidence_accuracy=float(item.get("confidence_accuracy", 0.0) or 0.0),
+        )
+        for item in (value or [])
+        if isinstance(item, Mapping)
+    ]
 
 
 def _scheduler_history_operations(data_root: Path) -> dict[str, object]:

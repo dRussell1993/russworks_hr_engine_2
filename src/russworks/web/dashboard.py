@@ -53,6 +53,7 @@ class OperatorDashboardBuilder:
             explanations=explanation_payload,
             command_center=command_payload,
             dashboard_summary=dashboard_payload,
+            accuracy_review=_accuracy_review(dashboard_payload, command_payload),
             errors=_errors(report_payload, command_payload, scheduler_payload),
         )
 
@@ -238,6 +239,13 @@ def _confidence_views(report: Mapping[str, Any], command_center: Mapping[str, An
         "batter_confidence_grade_counts": grade_counts,
         "command_center_confidence": _mapping(_mapping(command_center.get("formula_health")).get("confidence_summary")),
     }
+
+
+def _accuracy_review(dashboard: Mapping[str, Any], command_center: Mapping[str, Any]) -> dict[str, Any]:
+    dashboard_accuracy = _mapping(dashboard.get("accuracy_review"))
+    if dashboard_accuracy:
+        return dashboard_accuracy
+    return _mapping(_mapping(command_center.get("formula_health")).get("accuracy_review"))
 
 
 def _errors(*payloads: Mapping[str, Any]) -> list[str]:

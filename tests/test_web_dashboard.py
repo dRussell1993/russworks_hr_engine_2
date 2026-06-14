@@ -1,10 +1,10 @@
-from dataclasses import is_dataclass
+from dataclasses import is_dataclass, replace
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from russworks.command_center import CommandCenterEngine
-from russworks.dashboard import CalibrationDashboardEngine
+from russworks.dashboard import AccuracyReview, CalibrationDashboardEngine
 from russworks.pipeline import DailyRunRequest, RussWorksPipeline
 from russworks.scheduler import ScheduledTask, SchedulerEngine, TaskKind, TaskResult, TaskStatus
 from russworks.web import (
@@ -60,6 +60,7 @@ def test_operator_dashboard_builds_all_requested_views_and_exports_json():
         self_learning_report=pipeline_result.self_learning_report,
         scheduler_status=scheduler,
     )
+    dashboard = replace(dashboard, accuracy_review=AccuracyReview(hr_events_acquired=2, winners=1, misses=1, false_positives=1, hit_rate=0.5))
     view = OperatorDashboardBuilder().build_dashboard(
         report=pipeline_result.full_report,
         dashboard=dashboard,
@@ -80,6 +81,7 @@ def test_operator_dashboard_builds_all_requested_views_and_exports_json():
     assert "batter_confidence_grade_counts" in view.confidence_views
     assert view.explanations["batter_explanations"]
     assert view.command_center["formula_health"]["scheduler_summary"]["task_count"] == 1
+    assert view.accuracy_review["hr_events_acquired"] == 2
 
     with TemporaryDirectory() as temp_dir:
         output_path = OperatorDashboardBuilder().export_json(view, temp_dir)
@@ -88,6 +90,7 @@ def test_operator_dashboard_builds_all_requested_views_and_exports_json():
     assert output_path.name == "dashboard_data.json"
     assert payload["batters"]
     assert payload["scheduler"]["task_status_counts"]["success"] == 1
+    assert payload["accuracy_review"]["hit_rate"] == 0.5
 
 
 def test_operator_dashboard_builds_from_report_file_and_optional_sidecars():

@@ -140,6 +140,121 @@ def exposure_warning_rows(data: DashboardData) -> list[dict[str, Any]]:
     return rows
 
 
+def accuracy_metric_rows(data: DashboardData) -> list[dict[str, Any]]:
+    accuracy = accuracy_review(data)
+    if not accuracy:
+        return []
+    return [
+        {"Metric": "HR Events Acquired", "Value": accuracy.get("hr_events_acquired", 0)},
+        {"Metric": "Winners", "Value": accuracy.get("winners", 0)},
+        {"Metric": "Misses", "Value": accuracy.get("misses", 0)},
+        {"Metric": "False Positives", "Value": accuracy.get("false_positives", 0)},
+        {"Metric": "Hit Rate", "Value": _percent(accuracy.get("hit_rate", 0.0))},
+    ]
+
+
+def accuracy_hit_rate_sections(data: DashboardData) -> dict[str, list[dict[str, Any]]]:
+    accuracy = accuracy_review(data)
+    return {
+        "By Russ Tier": _accuracy_bucket_rows(accuracy.get("hit_rate_by_russ_tier", []) if accuracy else []),
+        "By Confidence Grade": _accuracy_bucket_rows(accuracy.get("hit_rate_by_confidence_grade", []) if accuracy else []),
+        "By Team Cluster Grade": _accuracy_bucket_rows(accuracy.get("hit_rate_by_team_cluster_grade", []) if accuracy else []),
+        "By Slip Type": _accuracy_bucket_rows(accuracy.get("hit_rate_by_slip_type", []) if accuracy else []),
+    }
+
+
+def accuracy_false_positive_rows(data: DashboardData) -> list[dict[str, Any]]:
+    accuracy = accuracy_review(data)
+    rows = []
+    for item in accuracy.get("top_false_positives", []) if accuracy else []:
+        row = _mapping(item)
+        rows.append(
+            {
+                "Batter": row.get("batter", ""),
+                "Team": row.get("team", ""),
+                "Slip": row.get("slip_name", ""),
+                "Slip Type": row.get("slip_type", ""),
+                "Russ Score": row.get("russ_score", 0.0),
+                "Overweighted Modules": ", ".join(str(value) for value in row.get("overweighted_modules", []) or []),
+                "Reason": row.get("reason", ""),
+            }
+        )
+    return rows
+
+
+def accuracy_false_negative_rows(data: DashboardData) -> list[dict[str, Any]]:
+    accuracy = accuracy_review(data)
+    rows = []
+    for item in accuracy.get("top_false_negatives", []) if accuracy else []:
+        row = _mapping(item)
+        rows.append(
+            {
+                "Batter": row.get("batter", ""),
+                "Team": row.get("team", ""),
+                "Pitcher": row.get("pitcher", ""),
+                "Pitch": row.get("pitch", ""),
+                "Inning": row.get("inning", ""),
+                "Distance": row.get("distance", ""),
+                "Russ Score": row.get("russ_score", 0.0),
+                "Tier": row.get("tier", ""),
+                "Confidence": row.get("confidence", ""),
+            }
+        )
+    return rows
+
+
+def accuracy_module_rows(data: DashboardData) -> list[dict[str, Any]]:
+    accuracy = accuracy_review(data)
+    rows = []
+    for section, items in [
+        ("Best", accuracy.get("best_performing_modules", []) if accuracy else []),
+        ("Worst", accuracy.get("worst_performing_modules", []) if accuracy else []),
+    ]:
+        for item in items:
+            row = _mapping(item)
+            rows.append(
+                {
+                    "Section": section,
+                    "Module": row.get("module", ""),
+                    "Appearances": row.get("appearances", 0),
+                    "Wins": row.get("wins", 0),
+                    "Losses": row.get("losses", 0),
+                    "Hit Rate": _percent(row.get("hit_rate", 0.0)),
+                    "False Positives": row.get("false_positives", 0),
+                    "False Negatives": row.get("false_negatives", 0),
+                    "Confidence Accuracy": _percent(row.get("confidence_accuracy", 0.0)),
+                }
+            )
+    return rows
+
+
+def accuracy_recommendation_rows(data: DashboardData) -> list[dict[str, Any]]:
+    accuracy = accuracy_review(data)
+    rows = []
+    for item in accuracy.get("top_calibration_recommendations", []) if accuracy else []:
+        row = _mapping(item)
+        rows.append(
+            {
+                "Module": row.get("module", ""),
+                "Action": row.get("action", ""),
+                "Confidence": row.get("confidence", ""),
+                "Reasoning": row.get("reasoning", ""),
+                "Source": row.get("source", ""),
+            }
+        )
+    return rows
+
+
+def accuracy_review(data: DashboardData) -> dict[str, Any]:
+    accuracy = _mapping(data.dashboard_data.get("accuracy_review"))
+    if accuracy:
+        return accuracy
+    accuracy = _mapping(data.calibration_dashboard.get("accuracy_review"))
+    if accuracy:
+        return accuracy
+    return _mapping(_mapping(_mapping(data.command_center).get("formula_health")).get("accuracy_review"))
+
+
 def validation_warning_rows(data: DashboardData) -> list[dict[str, Any]]:
     command = _mapping(data.command_center or data.dashboard_data.get("command_center"))
     slate = _mapping(command.get("slate_status"))
@@ -383,3 +498,26 @@ def _message(value: Any) -> str:
 
 def _found(value: Any) -> str:
     return "Found" if value else "Missing"
+
+
+def _accuracy_bucket_rows(values: Any) -> list[dict[str, Any]]:
+    rows = []
+    for item in values or []:
+        row = _mapping(item)
+        rows.append(
+            {
+                "Group": row.get("label", ""),
+                "Appearances": row.get("appearances", 0),
+                "Hits": row.get("hits", 0),
+                "Misses": row.get("misses", 0),
+                "Hit Rate": _percent(row.get("hit_rate", 0.0)),
+            }
+        )
+    return rows
+
+
+def _percent(value: Any) -> str:
+    try:
+        return f"{float(value or 0.0):.1%}"
+    except (TypeError, ValueError):
+        return "0.0%"
