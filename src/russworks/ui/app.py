@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from russworks.ui.loaders import available_output_dates, load_dashboard_outputs
+from russworks.ui.loaders import discover_outputs, load_dashboard_outputs
 from russworks.ui import views
 
 
@@ -27,18 +27,27 @@ def main() -> None:
 
 
 def render_app(st: Any) -> None:
-    st.set_page_config(page_title="Russ-Works Command Dashboard", layout="wide")
-    st.title("Russ-Works HR Engine")
-    st.caption("Local operator dashboard for generated Russ-Works outputs.")
+    st.set_page_config(page_title="Hype Man Sports - Russ-Works HR Engine", layout="wide")
+    _inject_theme(st)
+    st.markdown("<h1>Hype Man Sports - Russ-Works HR Engine</h1>", unsafe_allow_html=True)
+    st.caption("Local operator command dashboard for Russ-Works HR outputs.")
 
-    dates = available_output_dates("data")
-    selected_date = st.sidebar.selectbox("Report date", dates or [""], index=0)
+    discovery = discover_outputs()
+    manual_root = st.sidebar.text_input("Manual output data directory", value="")
+    date_options = discovery.available_dates or [""]
+    selected_date = st.sidebar.selectbox("Report date", date_options, index=0)
     page = st.sidebar.radio("Page", PAGES)
-    data = load_dashboard_outputs(date=selected_date or None, data_root="data")
+    data = load_dashboard_outputs(date=selected_date or None, data_root=manual_root or None)
+
+    st.sidebar.caption(f"Active data root: `{data.data_root or 'not found'}`")
+    if data.missing_files:
+        st.sidebar.error("Missing outputs detected")
+        with st.sidebar.expander("Searched paths"):
+            for path in data.searched_paths:
+                st.code(path)
 
     if data.missing_files:
-        st.sidebar.warning("Missing outputs: " + ", ".join(data.missing_files))
-    st.sidebar.caption("Run `python -m russworks.run --date YYYY-MM-DD` to refresh outputs.")
+        st.warning(data.missing_output_message)
 
     if page == "Overview":
         _render_overview(st, data)
@@ -58,20 +67,49 @@ def render_app(st: Any) -> None:
 
 def _render_overview(st: Any, data) -> None:
     st.subheader("Overview")
-    _table(st, views.overview_metrics(data))
+    cols = st.columns(4)
+    for index, row in enumerate(views.overview_metrics(data)):
+        cols[index % 4].metric(str(row["Metric"]), row["Value"])
+    st.markdown("### Output Health")
+    _table(st, views.missing_output_rows(data) or [{"Status": "Ready", "Message": "All expected dashboard outputs were found."}])
     if data.operator_report:
-        with st.expander("Operator Report Preview"):
+        with st.expander("Operator Report Preview", expanded=False):
             st.markdown(views.operator_report_preview(data))
 
 
 def _render_targets(st: Any, data) -> None:
     st.subheader("Top HR Targets")
-    _table(st, views.top_hr_targets(data, limit=50))
+    options = views.filter_options(data)
+    cols = st.columns(4)
+    team = cols[0].selectbox("Team", ["", *options["teams"]])
+    tier = cols[1].selectbox("Tier", ["", *options["tiers"]])
+    confidence = cols[2].selectbox("Confidence", ["", *options["confidence"]])
+    non_superstar = cols[3].checkbox("Non-superstar only")
+    rows = views.top_hr_targets(
+        data,
+        limit=200,
+        team=team,
+        tier=tier,
+        confidence=confidence,
+        non_superstar_only=non_superstar,
+    )
+    _table(st, rows)
+    _legend(st)
 
 
 def _render_clusters(st: Any, data) -> None:
     st.subheader("Team Clusters")
-    _table(st, views.team_clusters(data))
+    for card in views.cluster_cards(data):
+        with st.container(border=True):
+            st.markdown(
+                f"### {card['Team']} {_badge(card['TAG'], 'tag')} {_badge(card['CPS'], 'cps')} {_badge(card['Label'], 'tier')}",
+                unsafe_allow_html=True,
+            )
+            st.caption(f"Opponent: {card['Opponent']} | Cluster Score: {card['Cluster Score']} | Confidence: {card['Confidence']}")
+            st.write(f"Captain: **{card['Captain']}**")
+            st.write(f"Hidden beneficiary: **{card['Hidden Beneficiary']}**")
+            if card.get("Warnings"):
+                st.warning(card["Warnings"])
 
 
 def _render_slips(st: Any, data) -> None:
@@ -80,23 +118,28 @@ def _render_slips(st: Any, data) -> None:
     if not grouped:
         st.info("No Step 5 slips found.")
         return
-    for slip_type, cards in grouped.items():
-        st.markdown(f"### {slip_type}")
-        for card in cards:
-            with st.container(border=True):
-                st.markdown(f"**{card['name']}**")
-                st.caption(f"Confidence: {card['confidence']} | Teams: {', '.join(card['teams'])}")
-                st.write(", ".join(card["batters"]))
-                if card["justification"]:
-                    st.write(card["justification"])
+    tabs = st.tabs([group for group in views.SLIP_GROUP_ORDER if group in grouped])
+    for tab, group in zip(tabs, [group for group in views.SLIP_GROUP_ORDER if group in grouped]):
+        with tab:
+            for card in grouped[group]:
+                with st.container(border=True):
+                    st.markdown(f"### {card['name']} {_badge(card['confidence'], 'confidence')}", unsafe_allow_html=True)
+                    st.caption(f"Teams: {', '.join(card['teams'])}")
+                    _table(st, card["legs"])
+                    if card["justification"]:
+                        st.write(card["justification"])
+                    if card["risk_warning"]:
+                        st.warning(card["risk_warning"])
 
 
 def _render_confidence(st: Any, data) -> None:
     st.subheader("Confidence / Risk")
-    st.markdown("#### Confidence")
+    st.markdown("### Confidence")
     _table(st, views.confidence_rows(data))
-    st.markdown("#### Risk")
+    st.markdown("### Portfolio / Simulation Risk")
     _table(st, views.risk_rows(data))
+    st.markdown("### Exposure Warnings")
+    _table(st, views.exposure_warning_rows(data))
 
 
 def _render_validation(st: Any, data) -> None:
@@ -106,7 +149,14 @@ def _render_validation(st: Any, data) -> None:
 
 def _render_command_center(st: Any, data) -> None:
     st.subheader("Command Center")
+    st.markdown("### Pipeline Status")
     _table(st, views.command_center_rows(data))
+    st.markdown("### Provider Health")
+    _table(st, views.provider_health_rows(data))
+    st.markdown("### Generated Outputs")
+    _table(st, views.generated_output_rows(data))
+    st.markdown("### Scheduler Status")
+    _table(st, views.scheduler_rows(data))
 
 
 def _table(st: Any, rows: list[dict[str, Any]]) -> None:
@@ -114,6 +164,64 @@ def _table(st: Any, rows: list[dict[str, Any]]) -> None:
         st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
         st.info("No records found.")
+
+
+def _legend(st: Any) -> None:
+    st.markdown(
+        " ".join(
+            [
+                _badge("Elite Core / Diamond", "diamond"),
+                _badge("Core Target / Gold", "gold"),
+                _badge("Strong Play / Silver", "silver"),
+                _badge("Value / Green", "green"),
+                _badge("Chaos / Orange", "orange"),
+                _badge("Fade / Red", "red"),
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _badge(text: Any, badge_type: str = "neutral") -> str:
+    return f"<span class='badge badge-{badge_type}'>{text}</span>"
+
+
+def _inject_theme(st: Any) -> None:
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background: linear-gradient(135deg, #07111f 0%, #101827 48%, #07111f 100%);
+            color: #edf2f7;
+        }
+        h1, h2, h3 { color: #f8fafc; letter-spacing: 0; }
+        [data-testid="stSidebar"] {
+            background: #0b1220;
+            border-right: 1px solid #1f2937;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.18rem 0.5rem;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            margin: 0.1rem;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        .badge-diamond, .badge-tier { background: #0f766e; color: #ecfeff; }
+        .badge-gold { background: #a16207; color: #fefce8; }
+        .badge-silver { background: #475569; color: #f8fafc; }
+        .badge-green { background: #166534; color: #f0fdf4; }
+        .badge-orange { background: #c2410c; color: #fff7ed; }
+        .badge-red { background: #991b1b; color: #fef2f2; }
+        .badge-tag { background: #1d4ed8; color: #eff6ff; }
+        .badge-cps { background: #7e22ce; color: #faf5ff; }
+        .badge-confidence { background: #334155; color: #f8fafc; }
+        .badge-neutral { background: #111827; color: #f8fafc; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _load_streamlit() -> Any:
