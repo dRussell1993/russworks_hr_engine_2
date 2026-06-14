@@ -57,6 +57,7 @@ class CalibrationDashboard:
     simulation_summaries: list[str] = field(default_factory=list)
     self_learning_summaries: list[str] = field(default_factory=list)
     scheduler_summaries: list[str] = field(default_factory=list)
+    operations_summary: dict[str, Any] = field(default_factory=dict)
     validation_summaries: list[str] = field(default_factory=list)
     skipped_game_summaries: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)

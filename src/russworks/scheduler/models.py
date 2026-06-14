@@ -46,6 +46,20 @@ class TaskResult:
     failures: int = 0
     retries: int = 0
     output_path: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    messages: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SchedulerRunHistoryEntry:
+    date: str
+    generated_at: str
+    task_name: str
+    task_kind: str
+    status: str
+    output_path: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
     messages: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -55,6 +69,7 @@ class SchedulerStatus:
     generated_at: str
     date: str
     tasks: list[TaskResult] = field(default_factory=list)
+    history: list[SchedulerRunHistoryEntry] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     @property
