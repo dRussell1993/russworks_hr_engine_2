@@ -13,6 +13,7 @@ from .scoring import calculate_team_clusters, score_game
 from .validation import validate_step2
 
 from russworks.cluster import ClusterRanking, TeamClusterReport
+from russworks.match_integrity import build_match_integrity_audit
 from russworks.review import BatterReview, BatterReviewResult
 from russworks.slips import Slip as Step5Slip
 from russworks.slips import SlipPortfolio
@@ -164,6 +165,7 @@ class ReportGenerator:
             lines.extend(["## Validation Warnings", ""])
             lines.extend(f"- {warning}" for warning in report.context.warnings)
             lines.append("")
+        lines.extend(_operator_match_integrity(report))
         lines.extend(_operator_step3(report.step3.batter_reviews))
         lines.extend(_operator_step4(report.step4.team_rankings))
         lines.extend(_operator_step5(report.step5))
@@ -285,6 +287,37 @@ def _operator_step3(reviews: Sequence[Mapping[str, Any]]) -> List[str]:
             ]
         )
     lines.append(md_table(headers, rows))
+    lines.append("")
+    return lines
+
+
+def _operator_match_integrity(report: FullRussWorksReport) -> List[str]:
+    audit = build_match_integrity_audit(report.to_dict())
+    lines = ["## Production Readiness / Match Integrity", ""]
+    rows = [
+        ["Production Readiness", audit.production_readiness],
+        ["Data Source Type", audit.data_source_type],
+        ["Placeholder Predictions Found", audit.placeholder_prediction_count],
+        ["Real Prediction Records", audit.real_prediction_records],
+        ["Actual HR Records", audit.actual_hr_count],
+        ["Matched HRs", audit.matched_actual_hr_count],
+        ["Unmatched HRs", audit.unmatched_actual_hr_count],
+        ["False Positives", audit.false_positive_count],
+        ["False Negatives", audit.false_negative_count],
+        ["Duplicate Predictions", audit.duplicate_prediction_count],
+        ["Duplicate Actual HRs", audit.duplicate_actual_hr_count],
+        ["Hit-Rate Formula", audit.hit_rate_formula_used],
+        ["Calibration Enabled", "yes" if audit.calibration_enabled else "no"],
+    ]
+    lines.append(md_table(["Metric", "Value"], rows))
+    if audit.warnings:
+        lines.append("")
+        lines.extend(f"- {warning}" for warning in audit.warnings)
+    if audit.placeholder_predictions_found:
+        lines.append("")
+        lines.append("Placeholder prediction examples:")
+        for item in audit.placeholder_predictions_found[:10]:
+            lines.append(f"- {item.section}: {item.batter} ({item.team})")
     lines.append("")
     return lines
 

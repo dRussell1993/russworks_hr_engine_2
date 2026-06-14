@@ -162,6 +162,12 @@ def _render_accuracy(st: Any, data) -> None:
             cols[index % len(cols)].metric(str(row["Metric"]), row["Value"])
     else:
         st.info("No post-mortem accuracy review found yet.")
+    st.markdown("### Production Readiness / Match Integrity")
+    _table(st, views.production_readiness_rows(data))
+    placeholders = views.placeholder_prediction_rows(data)
+    if placeholders:
+        st.warning("Placeholder prediction data detected; calibration disabled for this run.")
+        _table(st, placeholders)
     st.markdown("### Hit Rates")
     for title, rows in views.accuracy_hit_rate_sections(data).items():
         st.markdown(f"#### {title}")

@@ -248,6 +248,35 @@ def test_accuracy_review_summarizes_postmortem_results_by_operating_groups():
     assert dashboard.accuracy_review.top_calibration_recommendations[0]["module"] == "TAG"
 
 
+def test_placeholder_predictions_disable_accuracy_calibration_recommendations():
+    postmortem = PostMortemReport(
+        actual_home_runs=[ActualHomeRunEntry("KC", "Real Winner", "Fastball", "Starter", 1, 104.0, 410.0, 28.0)],
+        winner_log=[WinnerLogEntry("KC", "Real Winner", "Fastball", "Starter", 1, 104.0, 410.0, 28.0, source="missed_by_step5")],
+        loser_log=[LoserLogEntry("KC", "KC Batter 4", "KC Core", "core", "A+", "A+", 94.0, "core")],
+        false_positive_log=[FalsePositiveEntry("KC", "KC Batter 4", "KC Core", "core", "High-confidence miss.", ["TAG"])],
+    )
+    dashboard = CalibrationDashboardEngine().build_dashboard(
+        calibration_result=CalibrationResult(
+            metrics=[CalibrationMetric("TAG", 10, 4, 0.4, 2, 1, 0.7)],
+            recommended_adjustments=[CalibrationRecommendation("TAG", "review", 0.0, "medium", "TAG pressure")],
+        ),
+        postmortem_reports=[postmortem],
+        report_payload={
+            "context": {"validation_status": "valid"},
+            "step3": {"batter_reviews": [{"batter": "KC Batter 4", "team": "KC"}]},
+            "step4": {"team_rankings": [{"team": "KC", "cluster_captain": "KC Batter 4"}]},
+            "step5": {"core_slips": [{"slip_type": "core", "legs": [{"batter": "KC Batter 4", "team": "KC"}]}]},
+        },
+    )
+
+    assert dashboard.accuracy_review is not None
+    assert dashboard.accuracy_review.production_readiness == "FAIL"
+    assert dashboard.accuracy_review.calibration_enabled is False
+    assert dashboard.accuracy_review.placeholder_predictions_found
+    assert dashboard.accuracy_review.top_calibration_recommendations == []
+    assert "Placeholder prediction data detected; calibration disabled for this run." in dashboard.accuracy_review.errors
+
+
 def test_existing_engines_can_build_dashboards():
     calibration_result = _calibration_result()
     backtest_result = _backtest_result()

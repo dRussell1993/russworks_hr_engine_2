@@ -50,6 +50,11 @@ class AccuracyBucket:
 
 @dataclass(frozen=True)
 class AccuracyReview:
+    production_readiness: str = "WARNING"
+    production_readiness_status: str = "WARNING"
+    calibration_enabled: bool = False
+    match_integrity: dict[str, Any] = field(default_factory=dict)
+    placeholder_predictions_found: list[dict[str, Any]] = field(default_factory=list)
     hr_events_acquired: int = 0
     winners: int = 0
     misses: int = 0

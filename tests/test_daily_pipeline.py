@@ -294,6 +294,7 @@ def test_phase43_score_spread_cluster_spread_and_operator_markdown_report():
         assert "STEP 3 — BATTER REVIEW" in text
         assert "STEP 4 — TEAM CLUSTER RANKINGS" in text
         assert "STEP 5 — SLIP CONSTRUCTION" in text
+        assert "Production Readiness / Match Integrity" in text
         assert "Confidence warning" in text
 
 
