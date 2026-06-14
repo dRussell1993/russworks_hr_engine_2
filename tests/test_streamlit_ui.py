@@ -9,6 +9,7 @@ def test_ui_app_imports_with_absolute_package_imports():
     import russworks.ui.app as app
 
     assert app.PAGES[0] == "Overview"
+    assert "Accuracy Review" in app.PAGES
     assert callable(app.render_app)
 
 
@@ -72,6 +73,12 @@ def test_ui_views_render_tables_cards_and_warnings(tmp_path):
     outputs = views.generated_output_rows(data)
     source_rows = views.data_source_rows(data)
     postmortem = views.postmortem_status_rows(data)
+    accuracy_metrics = views.accuracy_metric_rows(data)
+    accuracy_sections = views.accuracy_hit_rate_sections(data)
+    accuracy_false_negatives = views.accuracy_false_negative_rows(data)
+    accuracy_false_positives = views.accuracy_false_positive_rows(data)
+    accuracy_modules = views.accuracy_module_rows(data)
+    accuracy_recommendations = views.accuracy_recommendation_rows(data)
 
     assert {"Metric": "Date", "Value": "2026-06-13"} in overview
     assert any(row["Metric"] == "Data source" for row in overview)
@@ -92,6 +99,12 @@ def test_ui_views_render_tables_cards_and_warnings(tmp_path):
     assert source_rows[0]["Metric"] == "Data Source"
     assert any(row["Metric"] == "Actual HR File" and row["Status"] == "Found" for row in postmortem)
     assert views.postmortem_command(data) == "python -m russworks.postmortem.run --date 2026-06-13"
+    assert {"Metric": "HR Events Acquired", "Value": 2} in accuracy_metrics
+    assert accuracy_sections["By Russ Tier"][0]["Group"] == "Elite Core"
+    assert accuracy_false_negatives[0]["Batter"] == "TEX Missed"
+    assert accuracy_false_positives[0]["Batter"] == "KC Overranked"
+    assert accuracy_modules[0]["Module"] == "TAG"
+    assert accuracy_recommendations[0]["Module"] == "TAG"
 
 
 def test_ui_flags_placeholder_batter_names(tmp_path):
@@ -161,6 +174,22 @@ def _write_ui_fixture(root: Path, date: str, *, batter_name: str = "KC Power") -
         "confidence_views": {"batter_confidence_grade_counts": {"Medium": 1}},
         "command_center": {},
         "dashboard_summary": {},
+        "accuracy_review": {
+            "hr_events_acquired": 2,
+            "winners": 1,
+            "misses": 1,
+            "false_positives": 1,
+            "hit_rate": 0.5,
+            "hit_rate_by_russ_tier": [{"label": "Elite Core", "appearances": 2, "hits": 1, "misses": 1, "hit_rate": 0.5}],
+            "hit_rate_by_confidence_grade": [{"label": "Medium", "appearances": 2, "hits": 1, "misses": 1, "hit_rate": 0.5}],
+            "hit_rate_by_team_cluster_grade": [{"label": "Strong Cluster", "appearances": 9, "hits": 1, "misses": 8, "hit_rate": 0.1111}],
+            "hit_rate_by_slip_type": [{"label": "core", "appearances": 2, "hits": 1, "misses": 1, "hit_rate": 0.5}],
+            "top_false_negatives": [{"batter": "TEX Missed", "team": "TEX", "pitcher": "KC Starter", "pitch": "FF", "inning": 3, "distance": 410, "russ_score": 83.0, "tier": "Strong Play", "confidence": "Medium"}],
+            "top_false_positives": [{"batter": "KC Overranked", "team": "KC", "slip_name": "KC Core", "slip_type": "core", "russ_score": 91.2, "reason": "High-confidence miss.", "overweighted_modules": ["TAG", "CPS"]}],
+            "best_performing_modules": [{"module": "TAG", "appearances": 10, "wins": 4, "losses": 6, "hit_rate": 0.4, "false_positives": 2, "false_negatives": 1, "confidence_accuracy": 0.7}],
+            "worst_performing_modules": [{"module": "Umpire", "appearances": 10, "wins": 1, "losses": 9, "hit_rate": 0.1, "false_positives": 5, "false_negatives": 4, "confidence_accuracy": 0.2}],
+            "top_calibration_recommendations": [{"module": "TAG", "action": "review", "confidence": "medium", "reasoning": "TAG pressure", "source": "calibration_result"}],
+        },
         "errors": [],
     }
     command_center = {

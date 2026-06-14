@@ -11,7 +11,7 @@ from russworks.command_center import (
     FormulaHealthReport,
     build_command_center_report,
 )
-from russworks.dashboard import CalibrationDashboard, ModulePerformance
+from russworks.dashboard import AccuracyReview, CalibrationDashboard, ModulePerformance
 from russworks.data import DailySlate
 from russworks.intake import BatterIntake, GameIntake, PitcherIntake, TeamIntake
 from russworks.models import GameEnvironment, HRMatchup, Handedness, PitcherWeakSpot, Umpire
@@ -84,6 +84,7 @@ def _dashboard() -> CalibrationDashboard:
         modules=[tag, umpire],
         top_performing_modules=[tag],
         worst_performing_modules=[umpire],
+        accuracy_review=AccuracyReview(hr_events_acquired=4, winners=2, misses=2, false_positives=1, hit_rate=0.5),
     )
 
 
@@ -166,6 +167,8 @@ def test_command_center_generates_daily_operator_summary():
     assert report.formula_health.modules_heating_up == ["TAG"]
     assert report.formula_health.modules_cooling_off == ["Umpire"]
     assert report.formula_health.optimizer_recommendations[0]["module"] == "TAG"
+    assert report.formula_health.accuracy_review["hr_events_acquired"] == 4
+    assert report.formula_health.accuracy_review["hit_rate"] == 0.5
 
     assert report.execution_summary.step2_status == "valid"
     assert report.execution_summary.step3_status == "not_run"

@@ -84,6 +84,7 @@ class AutoPostMortemRunner:
             dashboard = CalibrationDashboardEngine().build_dashboard(
                 calibration_result=calibration_result,
                 postmortem_reports=[postmortem_report],
+                report_payload=report_payload,
             )
             recommendations = WeightRecommendationEngine().build_recommendations(
                 calibration_result=calibration_result,

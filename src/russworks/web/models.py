@@ -92,6 +92,7 @@ class DashboardView:
     explanations: dict[str, Any] = field(default_factory=dict)
     command_center: dict[str, Any] = field(default_factory=dict)
     dashboard_summary: dict[str, Any] = field(default_factory=dict)
+    accuracy_review: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
     @property

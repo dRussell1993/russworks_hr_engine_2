@@ -2,6 +2,8 @@
 
 from russworks.dashboard.dashboard_engine import CalibrationDashboardEngine, build_calibration_dashboard
 from russworks.dashboard.dashboard_models import (
+    AccuracyBucket,
+    AccuracyReview,
     ArchetypePerformance,
     CalibrationDashboard,
     ModulePerformance,
@@ -9,6 +11,8 @@ from russworks.dashboard.dashboard_models import (
 )
 
 __all__ = [
+    "AccuracyBucket",
+    "AccuracyReview",
     "ArchetypePerformance",
     "CalibrationDashboard",
     "CalibrationDashboardEngine",

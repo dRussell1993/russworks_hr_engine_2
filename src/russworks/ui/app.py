@@ -13,6 +13,7 @@ PAGES = [
     "Team Clusters",
     "Step 5 Slips",
     "Confidence / Risk",
+    "Accuracy Review",
     "Validation Warnings",
     "Command Center",
 ]
@@ -64,6 +65,8 @@ def render_app(st: Any) -> None:
         _render_slips(st, data)
     elif page == "Confidence / Risk":
         _render_confidence(st, data)
+    elif page == "Accuracy Review":
+        _render_accuracy(st, data)
     elif page == "Validation Warnings":
         _render_validation(st, data)
     elif page == "Command Center":
@@ -148,6 +151,29 @@ def _render_confidence(st: Any, data) -> None:
     _table(st, views.risk_rows(data))
     st.markdown("### Exposure Warnings")
     _table(st, views.exposure_warning_rows(data))
+
+
+def _render_accuracy(st: Any, data) -> None:
+    st.subheader("Accuracy Review")
+    metrics = views.accuracy_metric_rows(data)
+    if metrics:
+        cols = st.columns(min(5, len(metrics)))
+        for index, row in enumerate(metrics):
+            cols[index % len(cols)].metric(str(row["Metric"]), row["Value"])
+    else:
+        st.info("No post-mortem accuracy review found yet.")
+    st.markdown("### Hit Rates")
+    for title, rows in views.accuracy_hit_rate_sections(data).items():
+        st.markdown(f"#### {title}")
+        _table(st, rows)
+    st.markdown("### Top Missed HRs")
+    _table(st, views.accuracy_false_negative_rows(data))
+    st.markdown("### Top Over-Ranked Misses")
+    _table(st, views.accuracy_false_positive_rows(data))
+    st.markdown("### Module Performance")
+    _table(st, views.accuracy_module_rows(data))
+    st.markdown("### Calibration Recommendations")
+    _table(st, views.accuracy_recommendation_rows(data))
 
 
 def _render_validation(st: Any, data) -> None:

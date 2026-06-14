@@ -12,6 +12,8 @@ from russworks.backtesting import (
 )
 from russworks.calibration import CalibrationMetric, CalibrationRecommendation, CalibrationResult, FormulaCalibrationEngine
 from russworks.dashboard import (
+    AccuracyBucket,
+    AccuracyReview,
     ArchetypePerformance,
     CalibrationDashboard,
     CalibrationDashboardEngine,
@@ -109,6 +111,8 @@ def test_phase21_dashboard_models_are_dataclasses():
     assert is_dataclass(ModulePerformance)
     assert is_dataclass(TrendReport)
     assert is_dataclass(ArchetypePerformance)
+    assert is_dataclass(AccuracyBucket)
+    assert is_dataclass(AccuracyReview)
 
 
 def test_dashboard_tracks_all_required_module_performance():
@@ -170,6 +174,78 @@ def test_dashboard_exports_dashboard_json():
     assert payload["modules"]
     assert payload["top_performing_modules"]
     assert payload["thirty_day_trends"]["module_trends"]
+
+
+def test_accuracy_review_summarizes_postmortem_results_by_operating_groups():
+    postmortem = PostMortemReport(
+        actual_home_runs=[
+            ActualHomeRunEntry("KC", "Power Bat", "Fastball", "Starter", 1, 104.0, 410.0, 28.0),
+            ActualHomeRunEntry("TEX", "Missed Bat", "Slider", "Starter", 3, 103.0, 405.0, 24.0),
+        ],
+        winner_log=[
+            WinnerLogEntry("KC", "Power Bat", "Fastball", "Starter", 1, 104.0, 410.0, 28.0, slip_names=["KC Core"], slip_types=["core"], archetypes=["Core"], source="step5_hit"),
+            WinnerLogEntry("TEX", "Missed Bat", "Slider", "Starter", 3, 103.0, 405.0, 24.0, archetypes=["Missed By Step 5"], source="missed_by_step5"),
+        ],
+        loser_log=[
+            LoserLogEntry("KC", "Over Ranked", "KC Core", "core", "A+", "A+", 94.0, "core", archetypes=["Core"]),
+        ],
+        false_positive_log=[
+            FalsePositiveEntry("KC", "Over Ranked", "KC Core", "core", "High-confidence miss.", ["TAG", "CPS"]),
+        ],
+    )
+    calibration = CalibrationResult(
+        metrics=[
+            CalibrationMetric("TAG", 10, 4, 0.4, 2, 1, 0.7),
+            CalibrationMetric("Umpire", 10, 1, 0.1, 5, 4, 0.2),
+        ],
+        recommended_adjustments=[CalibrationRecommendation("TAG", "review", 0.0, "medium", "TAG pressure")],
+    )
+    report_payload = {
+        "step3": {
+            "batter_reviews": [
+                {"batter": "Power Bat", "team": "KC", "score_band": "Elite Core", "tier": "Gold", "russ_score": 91.0, "confidence": {"grade": "High"}},
+                {"batter": "Missed Bat", "team": "TEX", "score_band": "Value/Non-Superstar Core", "tier": "Silver", "russ_score": 71.0, "confidence": {"grade": "Medium"}},
+                {"batter": "Over Ranked", "team": "KC", "score_band": "Elite Core", "tier": "Gold", "russ_score": 94.0, "confidence": {"grade": "High"}},
+            ]
+        },
+        "step4": {
+            "team_rankings": [
+                {"team": "KC", "cluster_strength_label": "Nuclear Cluster", "batter_count": 2},
+                {"team": "TEX", "cluster_strength_label": "Value Cluster", "batter_count": 1},
+            ]
+        },
+        "step5": {
+            "core_slips": [
+                {
+                    "name": "KC Core",
+                    "slip_type": "core",
+                    "legs": [
+                        {"batter": "Power Bat", "team": "KC"},
+                        {"batter": "Over Ranked", "team": "KC"},
+                    ],
+                }
+            ]
+        },
+    }
+
+    dashboard = CalibrationDashboardEngine().build_dashboard(
+        calibration_result=calibration,
+        postmortem_reports=[postmortem],
+        report_payload=report_payload,
+    )
+
+    assert dashboard.accuracy_review is not None
+    assert dashboard.accuracy_review.hr_events_acquired == 2
+    assert dashboard.accuracy_review.winners == 2
+    assert dashboard.accuracy_review.false_positives == 1
+    assert {bucket.label for bucket in dashboard.accuracy_review.hit_rate_by_russ_tier} == {"Elite Core", "Value/Non-Superstar Core"}
+    assert {bucket.label for bucket in dashboard.accuracy_review.hit_rate_by_confidence_grade} == {"High", "Medium"}
+    assert dashboard.accuracy_review.hit_rate_by_slip_type[0].label == "core"
+    assert dashboard.accuracy_review.top_false_positives[0]["batter"] == "Over Ranked"
+    assert dashboard.accuracy_review.top_false_negatives[0]["batter"] == "Missed Bat"
+    assert dashboard.accuracy_review.best_performing_modules[0].module == "TAG"
+    assert dashboard.accuracy_review.worst_performing_modules[0].module == "Umpire"
+    assert dashboard.accuracy_review.top_calibration_recommendations[0]["module"] == "TAG"
 
 
 def test_existing_engines_can_build_dashboards():

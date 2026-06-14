@@ -150,6 +150,7 @@ class CommandCenterEngine:
             simulation_summary=_simulation_summary(daily_run_result),
             self_learning_summary=_self_learning_summary(daily_run_result),
             scheduler_summary=_scheduler_summary(scheduler_status),
+            accuracy_review=_accuracy_review(dashboard),
         )
 
     def execution_summary(
@@ -503,6 +504,12 @@ def _scheduler_summary(status: SchedulerStatus | None) -> dict[str, Any]:
         "status_counts": counts,
         "last_generated_at": status.generated_at,
     }
+
+
+def _accuracy_review(dashboard: CalibrationDashboard | None) -> dict[str, Any]:
+    if dashboard is None or dashboard.accuracy_review is None:
+        return {}
+    return _json_ready(dashboard.accuracy_review)
 
 
 def _json_ready(value: Any) -> Any:

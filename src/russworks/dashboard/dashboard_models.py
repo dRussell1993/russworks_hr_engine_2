@@ -40,6 +40,34 @@ class ArchetypePerformance:
 
 
 @dataclass(frozen=True)
+class AccuracyBucket:
+    label: str
+    appearances: int
+    hits: int
+    misses: int
+    hit_rate: float
+
+
+@dataclass(frozen=True)
+class AccuracyReview:
+    hr_events_acquired: int = 0
+    winners: int = 0
+    misses: int = 0
+    false_positives: int = 0
+    hit_rate: float = 0.0
+    hit_rate_by_russ_tier: list[AccuracyBucket] = field(default_factory=list)
+    hit_rate_by_confidence_grade: list[AccuracyBucket] = field(default_factory=list)
+    hit_rate_by_team_cluster_grade: list[AccuracyBucket] = field(default_factory=list)
+    hit_rate_by_slip_type: list[AccuracyBucket] = field(default_factory=list)
+    top_false_positives: list[dict[str, Any]] = field(default_factory=list)
+    top_false_negatives: list[dict[str, Any]] = field(default_factory=list)
+    best_performing_modules: list[ModulePerformance] = field(default_factory=list)
+    worst_performing_modules: list[ModulePerformance] = field(default_factory=list)
+    top_calibration_recommendations: list[dict[str, Any]] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class CalibrationDashboard:
     generated_at: str
     modules: list[ModulePerformance] = field(default_factory=list)
@@ -58,6 +86,7 @@ class CalibrationDashboard:
     self_learning_summaries: list[str] = field(default_factory=list)
     scheduler_summaries: list[str] = field(default_factory=list)
     operations_summary: dict[str, Any] = field(default_factory=dict)
+    accuracy_review: AccuracyReview | None = None
     validation_summaries: list[str] = field(default_factory=list)
     skipped_game_summaries: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
