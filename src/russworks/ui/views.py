@@ -163,6 +163,46 @@ def accuracy_hit_rate_sections(data: DashboardData) -> dict[str, list[dict[str, 
     }
 
 
+def production_readiness_rows(data: DashboardData) -> list[dict[str, Any]]:
+    accuracy = accuracy_review(data)
+    integrity = _mapping(accuracy.get("match_integrity")) if accuracy else {}
+    if not integrity and accuracy:
+        integrity = accuracy
+    if not integrity:
+        return []
+    return [
+        {"Metric": "Production Readiness", "Value": integrity.get("production_readiness", accuracy.get("production_readiness", ""))},
+        {"Metric": "Data Source Type", "Value": integrity.get("data_source_type", "")},
+        {"Metric": "Placeholder Predictions Found", "Value": len(integrity.get("placeholder_predictions_found", []) or accuracy.get("placeholder_predictions_found", []) or [])},
+        {"Metric": "Real Prediction Records", "Value": integrity.get("real_prediction_records", 0)},
+        {"Metric": "Actual HR Records", "Value": integrity.get("actual_hr_count", accuracy.get("hr_events_acquired", 0))},
+        {"Metric": "Matched HRs", "Value": integrity.get("matched_actual_hr_count", 0)},
+        {"Metric": "Unmatched HRs", "Value": integrity.get("unmatched_actual_hr_count", 0)},
+        {"Metric": "False Positives", "Value": integrity.get("false_positive_count", accuracy.get("false_positives", 0))},
+        {"Metric": "False Negatives", "Value": integrity.get("false_negative_count", accuracy.get("misses", 0))},
+        {"Metric": "Duplicate Predictions", "Value": integrity.get("duplicate_prediction_count", 0)},
+        {"Metric": "Duplicate Actual HRs", "Value": integrity.get("duplicate_actual_hr_count", 0)},
+        {"Metric": "Hit-Rate Formula", "Value": integrity.get("hit_rate_formula_used", "matched_predictions / total_predictions_evaluated")},
+        {"Metric": "Slip Hit-Rate Formula", "Value": integrity.get("slip_hit_rate_formula_used", "winning_legs / total_legs_evaluated")},
+        {"Metric": "Calibration Enabled", "Value": "yes" if integrity.get("calibration_enabled", accuracy.get("calibration_enabled", False)) else "no"},
+    ]
+
+
+def placeholder_prediction_rows(data: DashboardData) -> list[dict[str, Any]]:
+    accuracy = accuracy_review(data)
+    integrity = _mapping(accuracy.get("match_integrity")) if accuracy else {}
+    placeholders = integrity.get("placeholder_predictions_found", []) or accuracy.get("placeholder_predictions_found", []) if accuracy else []
+    return [
+        {
+            "Section": _mapping(item).get("section", ""),
+            "Batter": _mapping(item).get("batter", ""),
+            "Team": _mapping(item).get("team", ""),
+            "Reason": _mapping(item).get("reason", ""),
+        }
+        for item in placeholders
+    ]
+
+
 def accuracy_false_positive_rows(data: DashboardData) -> list[dict[str, Any]]:
     accuracy = accuracy_review(data)
     rows = []

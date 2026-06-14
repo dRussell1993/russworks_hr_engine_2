@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from russworks.calibration import FormulaCalibrationEngine
 from russworks.dashboard import CalibrationDashboardEngine
+from russworks.match_integrity import build_match_integrity_audit
 from russworks.models import RussTier
 from russworks.optimizer import FormulaOptimizer
 from russworks.postmortem import (
@@ -19,6 +20,7 @@ from russworks.postmortem import (
     normalize_actual_home_run_entry,
 )
 from russworks.recommendations import WeightRecommendationEngine
+from russworks.recommendations.models import RecommendationReport
 from russworks.reports import load_full_report_json
 from russworks.review import BatterReview, BatterReviewResult
 from russworks.slips import Slip, SlipLeg, SlipPortfolio
@@ -76,19 +78,26 @@ class AutoPostMortemRunner:
             portfolio = _portfolio_from_report(report_payload)
             step3_result = _step3_from_report(report_payload)
             postmortem_report = PostMortemEngine().compare_to_step5_portfolio(portfolio, actual_entries)
+            match_integrity = build_match_integrity_audit(report_payload, postmortem_report)
             calibration_result = FormulaCalibrationEngine().calibrate_reviews(
                 step3_result,
                 postmortem_report.actual_home_runs,
                 postmortem_reports=[postmortem_report],
             )
+            if not match_integrity.calibration_enabled:
+                calibration_result = _calibration_disabled_result(calibration_result, match_integrity.warnings)
             dashboard = CalibrationDashboardEngine().build_dashboard(
                 calibration_result=calibration_result,
                 postmortem_reports=[postmortem_report],
                 report_payload=report_payload,
             )
-            recommendations = WeightRecommendationEngine().build_recommendations(
-                calibration_result=calibration_result,
-                dashboard=dashboard,
+            recommendations = (
+                _recommendations_disabled_report(match_integrity.warnings)
+                if not match_integrity.calibration_enabled
+                else WeightRecommendationEngine().build_recommendations(
+                    calibration_result=calibration_result,
+                    dashboard=dashboard,
+                )
             )
             trends = TrendEngine().build_trends(
                 dashboard=dashboard,
@@ -196,6 +205,28 @@ def _load_actual_home_runs(path: Path, date: str):
 def _load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _calibration_disabled_result(calibration_result, warnings: list[str]):
+    from dataclasses import replace
+
+    return replace(
+        calibration_result,
+        recommended_adjustments=[],
+        trend_summaries=[
+            *calibration_result.trend_summaries,
+            *(warnings or ["Placeholder prediction data detected; calibration disabled for this run."]),
+        ],
+    )
+
+
+def _recommendations_disabled_report(warnings: list[str]) -> RecommendationReport:
+    return RecommendationReport(
+        generated_at=_now(),
+        modules=[],
+        rejected_modules=[],
+        errors=[],
+    )
 
 
 def _portfolio_from_report(payload: Mapping[str, Any]) -> SlipPortfolio:

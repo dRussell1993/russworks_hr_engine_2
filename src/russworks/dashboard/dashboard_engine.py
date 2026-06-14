@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import replace
+from dataclasses import asdict, is_dataclass, replace
 from datetime import datetime
 import json
 from pathlib import Path
@@ -12,6 +12,7 @@ from russworks.calibration import CalibrationMetric, CalibrationResult
 from russworks.confidence import ConfidenceEngine, ConfidenceResult
 from russworks.diversification import DiversificationResult
 from russworks.integrity import IntegrityReport
+from russworks.match_integrity import MatchIntegrityAudit, build_match_integrity_audit
 from russworks.portfolio import PortfolioProfile
 from russworks.postmortem import PostMortemReport
 from russworks.self_learning import SelfLearningReport
@@ -136,9 +137,12 @@ class CalibrationDashboardEngine:
     def export_json(self, dashboard: CalibrationDashboard, output_dir: str | Path) -> Path:
         output_path = Path(output_dir) / "dashboard.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        dashboard = _with_persisted_operations_summary(dashboard, output_path)
+        dashboard = self.with_persisted_context(dashboard, output_dir)
         output_path.write_text(dashboard.to_json(), encoding="utf-8")
         return output_path
+
+    def with_persisted_context(self, dashboard: CalibrationDashboard, output_dir: str | Path) -> CalibrationDashboard:
+        return _with_persisted_operations_summary(dashboard, Path(output_dir) / "dashboard.json")
 
     def build_weight_recommendations(
         self,
@@ -391,12 +395,18 @@ def _accuracy_review(
     hit_total = sum(actual_counts.values())
     miss_total = len(losers)
     payload = _mapping(report_payload)
+    audit = build_match_integrity_audit(payload, postmortem_reports[-1] if postmortem_reports else None)
     return AccuracyReview(
+        production_readiness=audit.production_readiness,
+        production_readiness_status=audit.production_readiness,
+        calibration_enabled=audit.calibration_enabled,
+        match_integrity=audit.to_dict(),
+        placeholder_predictions_found=[_json_ready(item) for item in audit.placeholder_predictions_found],
         hr_events_acquired=hit_total,
         winners=len(winners),
-        misses=miss_total,
-        false_positives=len(false_positives),
-        hit_rate=_rate(len([winner for winner in winners if winner.source == "step5_hit"]), max(1, len(winners) + miss_total)),
+        misses=audit.false_negative_count,
+        false_positives=audit.false_positive_count or len(false_positives),
+        hit_rate=audit.hit_rate,
         hit_rate_by_russ_tier=_batter_accuracy_buckets(_step3_rows(payload), actual_counts, "score_band", fallback_key="tier"),
         hit_rate_by_confidence_grade=_batter_accuracy_buckets(_step3_rows(payload), actual_counts, "confidence_grade"),
         hit_rate_by_team_cluster_grade=_cluster_accuracy_buckets(_step4_rows(payload), actual_counts),
@@ -405,7 +415,8 @@ def _accuracy_review(
         top_false_negatives=_top_false_negatives(winners, payload),
         best_performing_modules=best_modules,
         worst_performing_modules=worst_modules,
-        top_calibration_recommendations=_top_calibration_recommendations(calibration_result, recommendations, adjustments),
+        top_calibration_recommendations=[] if not audit.calibration_enabled else _top_calibration_recommendations(calibration_result, recommendations, adjustments),
+        errors=list(audit.warnings),
     )
 
 
@@ -770,6 +781,11 @@ def _existing_dashboard_accuracy(path: Path) -> AccuracyReview | None:
     if not accuracy:
         return None
     return AccuracyReview(
+        production_readiness=str(accuracy.get("production_readiness", accuracy.get("production_readiness_status", "WARNING"))),
+        production_readiness_status=str(accuracy.get("production_readiness_status", accuracy.get("production_readiness", "WARNING"))),
+        calibration_enabled=bool(accuracy.get("calibration_enabled", False)),
+        match_integrity=dict(_mapping(accuracy.get("match_integrity"))),
+        placeholder_predictions_found=list(accuracy.get("placeholder_predictions_found", []) or []),
         hr_events_acquired=_int_value(accuracy.get("hr_events_acquired")),
         winners=_int_value(accuracy.get("winners")),
         misses=_int_value(accuracy.get("misses")),
@@ -942,6 +958,16 @@ def _mtime_text(path: Path) -> str:
     if not path.exists():
         return ""
     return datetime.utcfromtimestamp(path.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
+
+
+def _json_ready(value: Any) -> Any:
+    if is_dataclass(value):
+        return _json_ready(asdict(value))
+    if isinstance(value, Mapping):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_ready(item) for item in value]
+    return value
 
 
 def _validation_summaries(summary: dict[str, object] | None) -> list[str]:

@@ -319,6 +319,8 @@ class RussWorksPipeline:
             validation_summary=result.validation_summary,
             skipped_games=result.skipped_games,
         )
+        dashboard_dir = Path(request.output_root).parent / "dashboard"
+        dashboard = self._dashboard_engine.with_persisted_context(dashboard, dashboard_dir)
         dashboard_path = self.save_dashboard(request, dashboard)
         command_center = self._command_center_engine.build_report(
             date=request.date,

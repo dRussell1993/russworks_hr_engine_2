@@ -79,6 +79,8 @@ def test_ui_views_render_tables_cards_and_warnings(tmp_path):
     accuracy_false_positives = views.accuracy_false_positive_rows(data)
     accuracy_modules = views.accuracy_module_rows(data)
     accuracy_recommendations = views.accuracy_recommendation_rows(data)
+    readiness = views.production_readiness_rows(data)
+    placeholders = views.placeholder_prediction_rows(data)
 
     assert {"Metric": "Date", "Value": "2026-06-13"} in overview
     assert any(row["Metric"] == "Data source" for row in overview)
@@ -105,6 +107,8 @@ def test_ui_views_render_tables_cards_and_warnings(tmp_path):
     assert accuracy_false_positives[0]["Batter"] == "KC Overranked"
     assert accuracy_modules[0]["Module"] == "TAG"
     assert accuracy_recommendations[0]["Module"] == "TAG"
+    assert any(row["Metric"] == "Production Readiness" and row["Value"] == "FAIL" for row in readiness)
+    assert placeholders[0]["Batter"] == "KC Batter 4"
 
 
 def test_ui_flags_placeholder_batter_names(tmp_path):
@@ -175,6 +179,26 @@ def _write_ui_fixture(root: Path, date: str, *, batter_name: str = "KC Power") -
         "command_center": {},
         "dashboard_summary": {},
         "accuracy_review": {
+            "production_readiness": "FAIL",
+            "production_readiness_status": "FAIL",
+            "calibration_enabled": False,
+            "placeholder_predictions_found": [{"section": "step3", "batter": "KC Batter 4", "team": "KC", "reason": "Generated/sample/test batter name detected."}],
+            "match_integrity": {
+                "production_readiness": "FAIL",
+                "data_source_type": "sample_or_generated_predictions",
+                "placeholder_predictions_found": [{"section": "step3", "batter": "KC Batter 4", "team": "KC", "reason": "Generated/sample/test batter name detected."}],
+                "real_prediction_records": 17,
+                "actual_hr_count": 2,
+                "matched_actual_hr_count": 1,
+                "unmatched_actual_hr_count": 1,
+                "false_positive_count": 1,
+                "false_negative_count": 1,
+                "duplicate_prediction_count": 0,
+                "duplicate_actual_hr_count": 0,
+                "hit_rate_formula_used": "matched_predictions / total_predictions_evaluated",
+                "slip_hit_rate_formula_used": "winning_legs / total_legs_evaluated",
+                "calibration_enabled": False,
+            },
             "hr_events_acquired": 2,
             "winners": 1,
             "misses": 1,
