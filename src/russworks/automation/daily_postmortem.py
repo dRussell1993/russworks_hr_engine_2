@@ -10,7 +10,14 @@ from russworks.calibration import FormulaCalibrationEngine
 from russworks.dashboard import CalibrationDashboardEngine
 from russworks.models import RussTier
 from russworks.optimizer import FormulaOptimizer
-from russworks.postmortem import CSVHomeRunDataProvider, PostMortemEngine, normalize_actual_home_run_entry
+from russworks.postmortem import (
+    CSVHomeRunDataProvider,
+    MLBStatsHomeRunDataProvider,
+    PostMortemEngine,
+    PostMortemIngestionRunner,
+    PostMortemNotReady,
+    normalize_actual_home_run_entry,
+)
 from russworks.recommendations import WeightRecommendationEngine
 from russworks.reports import load_full_report_json
 from russworks.review import BatterReview, BatterReviewResult
@@ -29,12 +36,22 @@ class AutoPostMortemRunner:
         metadata_path = date_dir / "run_metadata.json"
 
         if not actual_path.exists():
-            return PostMortemRunResult(
-                run=request,
-                success=True,
-                skipped=True,
-                messages=[f"Actual HR file missing for {request.date}; post-mortem skipped safely: {actual_path}"],
-            )
+            try:
+                actual_path = _acquire_actual_home_runs(request)
+            except PostMortemNotReady:
+                return PostMortemRunResult(
+                    run=request,
+                    success=True,
+                    skipped=True,
+                    messages=["Postmortem not ready."],
+                )
+            except Exception as exc:
+                return PostMortemRunResult(
+                    run=request,
+                    success=True,
+                    skipped=True,
+                    messages=[f"Actual HR file missing and automatic acquisition failed for {request.date}: {exc}"],
+                )
 
         if metadata_path.exists() and not request.force:
             return PostMortemRunResult(
@@ -152,6 +169,15 @@ def run_postmortem(date: str, run: DailyPostMortemRun | None = None) -> PostMort
 def _actual_hr_path(request: DailyPostMortemRun) -> Path:
     if request.actual_hr_path:
         return Path(request.actual_hr_path)
+    return Path(request.postmortem_output_dir) / f"actual_home_runs_{request.date}.csv"
+
+
+def _acquire_actual_home_runs(request: DailyPostMortemRun) -> Path:
+    runner = PostMortemIngestionRunner(
+        provider=MLBStatsHomeRunDataProvider(),
+        output_dir=request.postmortem_output_dir,
+    )
+    runner.run(request.date)
     return Path(request.postmortem_output_dir) / f"actual_home_runs_{request.date}.csv"
 
 
