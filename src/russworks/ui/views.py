@@ -16,6 +16,7 @@ def overview_metrics(data: DashboardData) -> list[dict[str, Any]]:
     validation = _mapping(metadata.get("validation_summary")) or _mapping(slate.get("validation_summary"))
     return [
         {"Metric": "Date", "Value": metadata.get("report_date") or data.selected_date},
+        {"Metric": "Data source", "Value": data.source_label},
         {"Metric": "Validation", "Value": metadata.get("validation_status", "")},
         {"Metric": "Games reviewed", "Value": metadata.get("games_reviewed", slate.get("games_loaded", 0))},
         {"Metric": "Batters loaded", "Value": slate.get("batters_loaded", len(data.dashboard_data.get("batters", []) or []))},
@@ -144,6 +145,8 @@ def validation_warning_rows(data: DashboardData) -> list[dict[str, Any]]:
     slate = _mapping(command.get("slate_status"))
     summary = _mapping(slate.get("validation_summary"))
     rows = []
+    for warning in data.placeholder_warnings:
+        rows.append({"Type": "Placeholder Data", "Message": warning})
     for warning in command.get("warnings", []) or []:
         warning_type = "Fallback" if "Neutral park factor fallback" in str(warning) else "Warning"
         rows.append({"Type": warning_type, "Message": warning})
@@ -203,6 +206,31 @@ def generated_output_rows(data: DashboardData) -> list[dict[str, Any]]:
     return rows
 
 
+def data_source_rows(data: DashboardData) -> list[dict[str, Any]]:
+    return [
+        {"Metric": "Data Source", "Value": data.source_label},
+        {"Metric": "Active Data Root", "Value": data.data_root},
+        {"Metric": "Report Date", "Value": data.selected_date},
+    ]
+
+
+def postmortem_status_rows(data: DashboardData) -> list[dict[str, Any]]:
+    status = data.postmortem_status or {}
+    return [
+        {"Metric": "Actual HR File", "Status": _found(status.get("actual_hr_file_found")), "Path": status.get("actual_hr_file_path", "")},
+        {"Metric": "Post-Mortem Last Run Date", "Status": status.get("postmortem_last_run_date") or "Missing", "Path": status.get("postmortem_report_path", "")},
+        {"Metric": "Winner Log", "Status": _found(status.get("postmortem_report_found")), "Path": status.get("winner_log_path", "")},
+        {"Metric": "Loser Log", "Status": _found(status.get("postmortem_report_found")), "Path": status.get("loser_log_path", "")},
+        {"Metric": "Calibration Export", "Status": _found(status.get("calibration_export_found")), "Path": status.get("calibration_export_path", "")},
+        {"Metric": "Dashboard Export", "Status": _found(status.get("dashboard_export_found")), "Path": status.get("dashboard_export_path", "")},
+        {"Metric": "Recommendation Export", "Status": _found(status.get("recommendation_export_found")), "Path": status.get("recommendation_export_path", "")},
+    ]
+
+
+def postmortem_command(data: DashboardData) -> str:
+    return str((data.postmortem_status or {}).get("runner_command") or "python -m russworks.postmortem.run --date YYYY-MM-DD")
+
+
 def scheduler_rows(data: DashboardData) -> list[dict[str, Any]]:
     scheduler = _mapping(data.dashboard_data.get("scheduler"))
     tasks = scheduler.get("tasks", []) or []
@@ -218,6 +246,10 @@ def operator_report_preview(data: DashboardData, *, lines: int = 80) -> str:
 
 def missing_output_rows(data: DashboardData) -> list[dict[str, Any]]:
     return [{"Missing": name, "Expected Path": data.paths.get(name, "")} for name in data.missing_files]
+
+
+def placeholder_warning_rows(data: DashboardData) -> list[dict[str, Any]]:
+    return [{"Warning": warning} for warning in data.placeholder_warnings]
 
 
 def _enhanced_batter_rows(data: DashboardData) -> list[dict[str, Any]]:
@@ -347,3 +379,7 @@ def _message(value: Any) -> str:
     if isinstance(value, Mapping):
         return str(value.get("message", value))
     return str(value)
+
+
+def _found(value: Any) -> str:
+    return "Found" if value else "Missing"

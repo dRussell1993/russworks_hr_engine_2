@@ -14,6 +14,7 @@ def test_ui_app_imports_with_absolute_package_imports():
 
 def test_ui_loader_reads_generated_dashboard_outputs(tmp_path):
     _write_ui_fixture(tmp_path, "2026-06-13")
+    _write_postmortem_fixture(tmp_path, "2026-06-13")
 
     data = load_dashboard_outputs(date="2026-06-13", data_root=tmp_path)
 
@@ -24,19 +25,25 @@ def test_ui_loader_reads_generated_dashboard_outputs(tmp_path):
     assert available_output_dates(tmp_path) == ["2026-06-13"]
     assert Path(data.data_root) == tmp_path.resolve()
     assert data.available_dates == ["2026-06-13"]
+    assert data.postmortem_status["actual_hr_file_found"] is True
+    assert data.postmortem_status["postmortem_report_found"] is True
 
 
-def test_ui_output_discovery_finds_latest_work_data_root(tmp_path):
-    older = tmp_path / "work" / "old" / "data"
-    newer = tmp_path / "work" / "new" / "data"
-    _write_ui_fixture(older, "2026-06-12")
-    _write_ui_fixture(newer, "2026-06-14")
+def test_ui_output_discovery_prefers_repo_root_data_over_work_data(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "src" / "russworks").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text("[project]\nname = 'russworks'\n", encoding="utf-8")
+    real = repo / "data"
+    sample = repo / "work" / "sample" / "data"
+    _write_ui_fixture(real, "2026-06-13")
+    _write_ui_fixture(sample, "2026-06-14")
 
-    discovery = discover_outputs(start=tmp_path)
+    discovery = discover_outputs(start=repo)
 
-    assert discovery.selected_date == "2026-06-14"
-    assert discovery.selected_root == newer.resolve()
-    assert str(newer.resolve()) in discovery.searched_paths
+    assert discovery.selected_date == "2026-06-13"
+    assert discovery.selected_root == real.resolve()
+    assert discovery.source_label == "Real project output"
+    assert str(sample.resolve()) in discovery.searched_paths
 
 
 def test_ui_missing_output_message_lists_paths_and_next_command(tmp_path):
@@ -50,6 +57,7 @@ def test_ui_missing_output_message_lists_paths_and_next_command(tmp_path):
 
 def test_ui_views_render_tables_cards_and_warnings(tmp_path):
     _write_ui_fixture(tmp_path, "2026-06-13")
+    _write_postmortem_fixture(tmp_path, "2026-06-13")
     data = load_dashboard_outputs(date="2026-06-13", data_root=tmp_path)
 
     overview = views.overview_metrics(data)
@@ -62,8 +70,11 @@ def test_ui_views_render_tables_cards_and_warnings(tmp_path):
     risk = views.risk_rows(data)
     exposure = views.exposure_warning_rows(data)
     outputs = views.generated_output_rows(data)
+    source_rows = views.data_source_rows(data)
+    postmortem = views.postmortem_status_rows(data)
 
     assert {"Metric": "Date", "Value": "2026-06-13"} in overview
+    assert any(row["Metric"] == "Data source" for row in overview)
     assert targets[0]["Batter"] == "KC Power"
     assert targets[0]["Confidence"] == "Medium 61.8"
     assert targets[0]["Key Drivers"]
@@ -78,9 +89,21 @@ def test_ui_views_render_tables_cards_and_warnings(tmp_path):
     assert any(row["Metric"] == "Expected Hit Rate" for row in risk)
     assert any(row["Type"] == "Portfolio" for row in exposure)
     assert any(row["Type"] == "Report" for row in outputs)
+    assert source_rows[0]["Metric"] == "Data Source"
+    assert any(row["Metric"] == "Actual HR File" and row["Status"] == "Found" for row in postmortem)
+    assert views.postmortem_command(data) == "python -m russworks.postmortem.run --date 2026-06-13"
 
 
-def _write_ui_fixture(root: Path, date: str) -> None:
+def test_ui_flags_placeholder_batter_names(tmp_path):
+    _write_ui_fixture(tmp_path, "2026-06-13", batter_name="KC Batter 4")
+
+    data = load_dashboard_outputs(date="2026-06-13", data_root=tmp_path)
+
+    assert data.placeholder_warnings
+    assert any("KC Batter" in row["Message"] for row in views.validation_warning_rows(data))
+
+
+def _write_ui_fixture(root: Path, date: str, *, batter_name: str = "KC Power") -> None:
     (root / "web").mkdir(parents=True)
     (root / "command_center").mkdir(parents=True)
     (root / "dashboard").mkdir(parents=True)
@@ -97,7 +120,7 @@ def _write_ui_fixture(root: Path, date: str) -> None:
         "batters": [
             {
                 "rank": 1,
-                "batter": "KC Power",
+                "batter": batter_name,
                 "team": "KC",
                 "opponent": "HOU Starter",
                 "lineup_slot": 4,
@@ -117,7 +140,7 @@ def _write_ui_fixture(root: Path, date: str) -> None:
                 "cps_grade": "A+",
                 "total_cluster_score": 79.04,
                 "cluster_strength_label": "Strong Cluster",
-                "cluster_captain": "KC Power",
+                "cluster_captain": batter_name,
                 "hidden_cluster_beneficiary": "KC Value",
                 "confidence_grade": "Medium",
             }
@@ -128,7 +151,7 @@ def _write_ui_fixture(root: Path, date: str) -> None:
                 "slip_type": "core",
                 "confidence_score": 61.8,
                 "confidence_grade": "Medium",
-                "batters": ["KC Power", "KC Value"],
+                "batters": [batter_name, "KC Value"],
                 "teams": ["KC"],
                 "justification": "Core slip with confidence warning.",
             }
@@ -178,6 +201,7 @@ def _write_ui_fixture(root: Path, date: str) -> None:
             "batter_reviews": [
                 {
                     "batter": "KC Power",
+                    "opponent": "HOU Starter",
                     "team": "KC",
                     "russ_score": 91.2,
                     "score_band": "Elite Core / Diamond",
@@ -221,6 +245,18 @@ def _write_ui_fixture(root: Path, date: str) -> None:
     _write_json(root / "dashboard" / "dashboard.json", calibration_dashboard)
     _write_json(root / "outputs" / date / "russworks_full_report.json", full_report)
     (root / "outputs" / date / "russworks_operator_report.md").write_text("# Russ-Works Operator Report\n", encoding="utf-8")
+
+
+def _write_postmortem_fixture(root: Path, date: str) -> None:
+    (root / "postmortem" / date).mkdir(parents=True)
+    (root / "recommendations").mkdir(parents=True)
+    (root / "postmortem" / f"actual_home_runs_{date}.csv").write_text(
+        "team,batter,pitch,pitcher,inning,exit_velocity,distance,angle\nKC,KC Power,FF,HOU Starter,1,104.2,412,27\n",
+        encoding="utf-8",
+    )
+    _write_json(root / "postmortem" / date / "postmortem_report.json", {"winner_log": [], "loser_log": []})
+    _write_json(root / "postmortem" / date / "calibration_result.json", {"success": True})
+    _write_json(root / "recommendations" / "recommendations.json", {"recommendations": []})
 
 
 def _write_json(path: Path, payload) -> None:

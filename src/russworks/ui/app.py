@@ -39,6 +39,7 @@ def render_app(st: Any) -> None:
     page = st.sidebar.radio("Page", PAGES)
     data = load_dashboard_outputs(date=selected_date or None, data_root=manual_root or None)
 
+    st.sidebar.caption(f"Data source: **{data.source_label}**")
     st.sidebar.caption(f"Active data root: `{data.data_root or 'not found'}`")
     if data.missing_files:
         st.sidebar.error("Missing outputs detected")
@@ -48,6 +49,10 @@ def render_app(st: Any) -> None:
 
     if data.missing_files:
         st.warning(data.missing_output_message)
+    if data.placeholder_warnings:
+        st.warning("Placeholder-looking data detected. Verify this dashboard is not loading sample or test output.")
+        with st.expander("Placeholder data warnings", expanded=False):
+            _table(st, views.placeholder_warning_rows(data))
 
     if page == "Overview":
         _render_overview(st, data)
@@ -70,8 +75,11 @@ def _render_overview(st: Any, data) -> None:
     cols = st.columns(4)
     for index, row in enumerate(views.overview_metrics(data)):
         cols[index % 4].metric(str(row["Metric"]), row["Value"])
+    st.markdown("### Data Source")
+    _table(st, views.data_source_rows(data))
     st.markdown("### Output Health")
     _table(st, views.missing_output_rows(data) or [{"Status": "Ready", "Message": "All expected dashboard outputs were found."}])
+    _render_postmortem_status(st, data)
     if data.operator_report:
         with st.expander("Operator Report Preview", expanded=False):
             st.markdown(views.operator_report_preview(data))
@@ -145,6 +153,9 @@ def _render_confidence(st: Any, data) -> None:
 def _render_validation(st: Any, data) -> None:
     st.subheader("Validation Warnings")
     _table(st, views.validation_warning_rows(data))
+    if data.placeholder_warnings:
+        st.markdown("### Placeholder Data Alerts")
+        _table(st, views.placeholder_warning_rows(data))
 
 
 def _render_command_center(st: Any, data) -> None:
@@ -155,8 +166,18 @@ def _render_command_center(st: Any, data) -> None:
     _table(st, views.provider_health_rows(data))
     st.markdown("### Generated Outputs")
     _table(st, views.generated_output_rows(data))
+    _render_postmortem_status(st, data)
     st.markdown("### Scheduler Status")
     _table(st, views.scheduler_rows(data))
+
+
+def _render_postmortem_status(st: Any, data) -> None:
+    st.markdown("### Post-Mortem Status")
+    _table(st, views.postmortem_status_rows(data))
+    st.caption("Run the end-of-day comparison after actual home run data is available:")
+    st.code(views.postmortem_command(data), language="bash")
+    if st.button("Show post-mortem command", key=f"postmortem-command-{data.selected_date}"):
+        st.info("Run the command above from the repository root after the actual HR CSV is available.")
 
 
 def _table(st: Any, rows: list[dict[str, Any]]) -> None:
