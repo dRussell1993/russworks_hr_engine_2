@@ -81,6 +81,7 @@ class CalibrationDashboardEngine:
         simulation_summaries = _simulation_summaries(simulation_result)
         self_learning_summaries = _self_learning_summaries(self_learning_report)
         scheduler_summaries = _scheduler_summaries(scheduler_status)
+        operations_summary = _operations_summary(scheduler_status, postmortem_reports, calibration_result)
         validation_summaries = _validation_summaries(validation_summary)
         skipped_game_summaries = _skipped_game_summaries(skipped_games)
         errors = []
@@ -106,6 +107,7 @@ class CalibrationDashboardEngine:
             simulation_summaries=simulation_summaries,
             self_learning_summaries=self_learning_summaries,
             scheduler_summaries=scheduler_summaries,
+            operations_summary=operations_summary,
             validation_summaries=validation_summaries,
             skipped_game_summaries=skipped_game_summaries,
             errors=errors,
@@ -431,6 +433,41 @@ def _scheduler_summaries(status: SchedulerStatus | None) -> list[str]:
         f"Scheduler failed tasks: {failed}.",
         f"Scheduler status: {'success' if status.success else 'attention required'}.",
     ]
+
+
+def _operations_summary(
+    status: SchedulerStatus | None,
+    postmortem_reports: Sequence[PostMortemReport],
+    calibration_result: CalibrationResult | None,
+) -> dict[str, object]:
+    summary: dict[str, object] = {
+        "last_slate_run": "",
+        "last_postmortem_run": "",
+        "last_successful_acquisition": "",
+        "hr_events_acquired": 0,
+        "winners": sum(len(report.winner_log) for report in postmortem_reports),
+        "misses": sum(len(report.loser_log) for report in postmortem_reports),
+        "false_positives": sum(len(report.false_positive_log) for report in postmortem_reports),
+        "adjustments": sum(len(report.adjustment_log) for report in postmortem_reports),
+        "calibration_recommendations": len(calibration_result.recommended_adjustments) if calibration_result else 0,
+    }
+    if status is None:
+        return summary
+
+    for item in [*getattr(status, "history", []), *getattr(status, "tasks", [])]:
+        metadata = getattr(item, "metadata", {}) or {}
+        generated_at = getattr(item, "generated_at", "") or getattr(item, "finished_at", "") or getattr(item, "last_run", "")
+        if metadata.get("last_slate_run") or metadata.get("slate_output_dir"):
+            summary["last_slate_run"] = metadata.get("last_slate_run") or generated_at
+        if metadata.get("last_postmortem_run"):
+            summary["last_postmortem_run"] = metadata.get("last_postmortem_run")
+        if metadata.get("last_successful_acquisition"):
+            summary["last_successful_acquisition"] = metadata.get("last_successful_acquisition")
+        for key in ["hr_events_acquired", "winners", "misses", "false_positives", "adjustments", "calibration_recommendations"]:
+            value = metadata.get(key)
+            if isinstance(value, (int, float)) and value:
+                summary[key] = int(value)
+    return summary
 
 
 def _validation_summaries(summary: dict[str, object] | None) -> list[str]:
