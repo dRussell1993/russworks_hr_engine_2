@@ -7,6 +7,7 @@ from russworks.postmortem import (
     ActualHomeRunEntry,
     CSVHomeRunDataProvider,
     MLBStatsHomeRunDataProvider,
+    PostMortemNotReady,
     PostMortemIngestionRunner,
     default_csv_path,
     normalize_actual_home_run_entry,
@@ -77,15 +78,41 @@ def test_ingestion_runner_saves_normalized_file_to_postmortem_directory():
         assert saved.count("KC Hidden Value") == 2
 
 
-def test_mlb_stats_provider_is_placeholder_without_paid_keys():
-    provider = MLBStatsHomeRunDataProvider()
+def test_mlb_stats_provider_fetches_final_game_home_runs():
+    provider = MLBStatsHomeRunDataProvider(requester=_mlb_stats_requester(final=True))
+
+    rows = provider.fetch_home_runs("2026-06-13")
+
+    assert len(rows) == 1
+    assert rows[0]["date"] == "2026-06-13"
+    assert rows[0]["game_id"] == "12345"
+    assert rows[0]["batter"] == "TEX YPI Bat"
+    assert rows[0]["team"] == "TEX"
+    assert rows[0]["opponent"] == "KC"
+    assert rows[0]["pitcher"] == "KC Starter"
+    assert rows[0]["inning"] == 2
+    assert rows[0]["exit_velocity"] == 106.2
+
+
+def test_mlb_stats_provider_reports_not_ready_for_non_final_games():
+    provider = MLBStatsHomeRunDataProvider(requester=_mlb_stats_requester(final=False))
 
     try:
         provider.fetch_home_runs("2026-06-13")
-        assert False, "MLB stats placeholder should not fetch yet"
-    except NotImplementedError as exc:
-        assert "placeholder" in str(exc).lower()
-        assert "CSVHomeRunDataProvider" in str(exc)
+        assert False, "non-final MLB games should block post-mortem acquisition"
+    except PostMortemNotReady as exc:
+        assert str(exc) == "Postmortem not ready."
+
+
+def test_mlb_stats_entries_normalize_with_game_and_opponent_metadata():
+    provider = MLBStatsHomeRunDataProvider(requester=_mlb_stats_requester(final=True))
+
+    entry = normalize_actual_home_run_entry(provider.fetch_home_runs("2026-06-13")[0], date="2026-06-13")
+
+    assert entry.batter == "TEX YPI Bat"
+    assert entry.pitch == "Slider"
+    assert entry.metadata["game_id"] == "12345"
+    assert entry.metadata["opponent"] == "KC"
 
 
 def test_default_csv_path_uses_postmortem_data_directory():
@@ -110,3 +137,59 @@ def test_cli_ingests_manual_csv_import():
         output_path = output_dir / "actual_home_runs_2026-06-13.csv"
         assert output_path.exists()
         assert "KC Hidden Value" in output_path.read_text(encoding="utf-8")
+
+
+def _mlb_stats_requester(*, final: bool):
+    def requester(url: str, timeout_seconds: float):
+        if "/schedule" in url:
+            return {
+                "dates": [
+                    {
+                        "games": [
+                            {
+                                "gamePk": 12345,
+                                "status": {
+                                    "abstractGameState": "Final" if final else "Live",
+                                    "detailedState": "Final" if final else "In Progress",
+                                },
+                            }
+                        ]
+                    }
+                ]
+            }
+        if "/game/12345/feed/live" in url:
+            return {
+                "gameData": {
+                    "teams": {
+                        "away": {"abbreviation": "TEX"},
+                        "home": {"abbreviation": "KC"},
+                    }
+                },
+                "liveData": {
+                    "plays": {
+                        "allPlays": [
+                            {
+                                "result": {"eventType": "single", "event": "Single"},
+                                "about": {"inning": 1, "halfInning": "top"},
+                            },
+                            {
+                                "result": {"eventType": "home_run", "event": "Home Run"},
+                                "about": {"inning": 2, "halfInning": "top"},
+                                "matchup": {
+                                    "batter": {"fullName": "TEX YPI Bat"},
+                                    "pitcher": {"fullName": "KC Starter"},
+                                },
+                                "playEvents": [
+                                    {
+                                        "details": {"type": {"description": "Slider", "code": "SL"}},
+                                        "hitData": {"launchSpeed": 106.2, "totalDistance": 411, "launchAngle": 28},
+                                    }
+                                ],
+                            },
+                        ]
+                    }
+                },
+            }
+        raise AssertionError(f"unexpected URL: {url}")
+
+    return requester

@@ -2,8 +2,10 @@ from dataclasses import is_dataclass
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from russworks.automation import AutoPostMortemRunner, DailyPostMortemRun, PostMortemRunResult, run_postmortem
+from russworks.postmortem import PostMortemNotReady
 from russworks.postmortem.run import main as postmortem_cli
 
 
@@ -27,7 +29,8 @@ def test_auto_postmortem_skips_safely_when_actual_hr_file_is_missing():
             optimizer_output_dir=str(root / "optimizer"),
         )
 
-        result = AutoPostMortemRunner().run_postmortem(DATE, request)
+        with patch("russworks.automation.daily_postmortem.MLBStatsHomeRunDataProvider", lambda: _FailingMLBHomeRunProvider()):
+            result = AutoPostMortemRunner().run_postmortem(DATE, request)
 
         assert result.success
         assert result.skipped
@@ -75,6 +78,52 @@ def test_auto_postmortem_exports_reports_and_detects_duplicate_processing():
         assert duplicate.skipped
         assert duplicate.duplicate
         assert duplicate.metadata_path == result.metadata_path
+
+
+def test_auto_postmortem_acquires_missing_actual_hr_file_from_mlb_stats():
+    with TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        report_path = root / "outputs" / DATE / "russworks_full_report.json"
+        _write_report_file(report_path)
+        request = DailyPostMortemRun(
+            date=DATE,
+            report_path=str(report_path),
+            postmortem_output_dir=str(root / "postmortem"),
+            dashboard_output_dir=str(root / "dashboard"),
+            recommendations_output_dir=str(root / "recommendations"),
+            trends_output_dir=str(root / "trends"),
+            optimizer_output_dir=str(root / "optimizer"),
+        )
+
+        with patch("russworks.automation.daily_postmortem.MLBStatsHomeRunDataProvider", lambda: _FakeMLBHomeRunProvider()):
+            result = AutoPostMortemRunner().run_postmortem(DATE, request)
+
+        actual_path = root / "postmortem" / f"actual_home_runs_{DATE}.csv"
+        assert result.success
+        assert not result.skipped
+        assert result.actual_home_runs_loaded == 1
+        assert actual_path.exists()
+        assert "TEX YPI Bat" in actual_path.read_text(encoding="utf-8")
+
+
+def test_auto_postmortem_reports_not_ready_when_games_are_not_final():
+    with TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        request = DailyPostMortemRun(
+            date=DATE,
+            postmortem_output_dir=str(root / "postmortem"),
+            dashboard_output_dir=str(root / "dashboard"),
+            recommendations_output_dir=str(root / "recommendations"),
+            trends_output_dir=str(root / "trends"),
+            optimizer_output_dir=str(root / "optimizer"),
+        )
+
+        with patch("russworks.automation.daily_postmortem.MLBStatsHomeRunDataProvider", lambda: _NotReadyMLBHomeRunProvider()):
+            result = AutoPostMortemRunner().run_postmortem(DATE, request)
+
+        assert result.success
+        assert result.skipped
+        assert result.messages == ["Postmortem not ready."]
 
 
 def test_auto_postmortem_force_preserves_historical_date_folder_and_reruns():
@@ -238,3 +287,32 @@ def _leg(batter, team, tag, cps):
         "slip_role": "core",
         "justification": "Step 5 leg justification with non-superstar and YPI context.",
     }
+
+
+class _FakeMLBHomeRunProvider:
+    def fetch_home_runs(self, date: str):
+        return [
+            {
+                "date": date,
+                "game_id": "12345",
+                "team": "TEX",
+                "opponent": "KC",
+                "batter": "TEX YPI Bat",
+                "pitcher": "KC Starter",
+                "pitch": "Slider",
+                "inning": 2,
+                "exit_velocity": 106.2,
+                "distance": 411,
+                "angle": 28,
+            }
+        ]
+
+
+class _NotReadyMLBHomeRunProvider:
+    def fetch_home_runs(self, date: str):
+        raise PostMortemNotReady("Postmortem not ready.")
+
+
+class _FailingMLBHomeRunProvider:
+    def fetch_home_runs(self, date: str):
+        raise RuntimeError("offline")
