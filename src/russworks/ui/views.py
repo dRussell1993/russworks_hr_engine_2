@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
-from .loaders import DashboardData
+from russworks.ui.loaders import DashboardData
+
+
+SLIP_GROUP_ORDER = ["Core", "Non-Superstar Core", "Balanced", "Chaos", "Contrarian"]
 
 
 def overview_metrics(data: DashboardData) -> list[dict[str, Any]]:
@@ -10,38 +13,58 @@ def overview_metrics(data: DashboardData) -> list[dict[str, Any]]:
     command = _mapping(data.command_center)
     slate = _mapping(command.get("slate_status"))
     execution = _mapping(command.get("execution_summary"))
+    validation = _mapping(metadata.get("validation_summary")) or _mapping(slate.get("validation_summary"))
     return [
         {"Metric": "Date", "Value": metadata.get("report_date") or data.selected_date},
         {"Metric": "Validation", "Value": metadata.get("validation_status", "")},
         {"Metric": "Games reviewed", "Value": metadata.get("games_reviewed", slate.get("games_loaded", 0))},
         {"Metric": "Batters loaded", "Value": slate.get("batters_loaded", len(data.dashboard_data.get("batters", []) or []))},
+        {"Metric": "Skipped games", "Value": validation.get("skipped_games", len(slate.get("skipped_games", []) or []))},
+        {"Metric": "Park fallback games", "Value": validation.get("park_factor_fallback_games", 0)},
         {"Metric": "Reports generated", "Value": len(execution.get("reports_generated", []) or [])},
         {"Metric": "Exports generated", "Value": len(execution.get("exports_generated", []) or [])},
     ]
 
 
-def top_hr_targets(data: DashboardData, *, limit: int = 25) -> list[dict[str, Any]]:
-    batters = list(data.dashboard_data.get("batters", []) or [])
-    batters.sort(key=lambda row: float(row.get("russ_score", 0.0) or 0.0), reverse=True)
-    return [
-        {
-            "Rank": row.get("rank", index),
-            "Batter": row.get("batter", ""),
-            "Team": row.get("team", ""),
-            "Slot": row.get("lineup_slot", ""),
-            "Russ Score": row.get("russ_score", 0.0),
-            "Tier": row.get("tier", ""),
-            "Confidence": _confidence_label(row),
-            "Key Factors": ", ".join(row.get("key_factors", []) or []),
-        }
-        for index, row in enumerate(batters[:limit], start=1)
-    ]
+def filter_options(data: DashboardData) -> dict[str, list[str]]:
+    rows = _enhanced_batter_rows(data)
+    return {
+        "teams": sorted({str(row.get("Team", "")) for row in rows if row.get("Team")}),
+        "tiers": sorted({str(row.get("Tier", "")) for row in rows if row.get("Tier")}),
+        "confidence": sorted({str(row.get("Confidence Grade", "")) for row in rows if row.get("Confidence Grade")}),
+    }
+
+
+def top_hr_targets(
+    data: DashboardData,
+    *,
+    limit: int = 25,
+    team: str = "",
+    tier: str = "",
+    confidence: str = "",
+    non_superstar_only: bool = False,
+) -> list[dict[str, Any]]:
+    rows = _enhanced_batter_rows(data)
+    if team:
+        rows = [row for row in rows if row.get("Team") == team]
+    if tier:
+        rows = [row for row in rows if row.get("Tier") == tier]
+    if confidence:
+        rows = [row for row in rows if row.get("Confidence Grade") == confidence]
+    if non_superstar_only:
+        rows = [row for row in rows if row.get("Non-Superstar Core")]
+    rows.sort(key=lambda row: float(row.get("Russ Score", 0.0) or 0.0), reverse=True)
+    for index, row in enumerate(rows, start=1):
+        row["Rank"] = index
+    return rows[:limit]
 
 
 def team_clusters(data: DashboardData) -> list[dict[str, Any]]:
+    warnings = validation_warning_rows(data)
+    warning_text = "; ".join(row["Message"] for row in warnings if row.get("Type") in {"Skipped Game", "Fallback"})
     return [
         {
-            "Rank": row.get("rank", ""),
+            "Rank": row.get("rank", index),
             "Team": row.get("team", ""),
             "Opponent": row.get("opponent", ""),
             "TAG": row.get("tag_grade", ""),
@@ -51,25 +74,28 @@ def team_clusters(data: DashboardData) -> list[dict[str, Any]]:
             "Captain": row.get("cluster_captain", ""),
             "Hidden Beneficiary": row.get("hidden_cluster_beneficiary", ""),
             "Confidence": row.get("confidence_grade", ""),
+            "Warnings": warning_text,
         }
-        for row in data.dashboard_data.get("teams", []) or []
+        for index, row in enumerate(data.dashboard_data.get("teams", []) or [], start=1)
     ]
 
 
+def cluster_cards(data: DashboardData) -> list[dict[str, Any]]:
+    return team_clusters(data)
+
+
 def slip_cards(data: DashboardData) -> dict[str, list[dict[str, Any]]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for slip in data.dashboard_data.get("slips", []) or []:
-        slip_type = _title(str(slip.get("slip_type", "other")).replace("_", " "))
-        grouped.setdefault(slip_type, []).append(
-            {
-                "name": slip.get("name", ""),
-                "confidence": _confidence_label(slip),
-                "batters": list(slip.get("batters", []) or []),
-                "teams": list(slip.get("teams", []) or []),
-                "justification": slip.get("justification", ""),
-            }
-        )
-    return grouped
+    grouped: dict[str, list[dict[str, Any]]] = {name: [] for name in SLIP_GROUP_ORDER}
+    rich_slips = _full_report_slips(data)
+    if rich_slips:
+        for slip in rich_slips:
+            group = _slip_group(str(slip.get("slip_type", "")))
+            grouped.setdefault(group, []).append(_rich_slip_card(slip))
+    else:
+        for slip in data.dashboard_data.get("slips", []) or []:
+            group = _slip_group(str(slip.get("slip_type", "")))
+            grouped.setdefault(group, []).append(_basic_slip_card(slip))
+    return {group: cards for group, cards in grouped.items() if cards}
 
 
 def confidence_rows(data: DashboardData) -> list[dict[str, Any]]:
@@ -85,21 +111,42 @@ def confidence_rows(data: DashboardData) -> list[dict[str, Any]]:
 def risk_rows(data: DashboardData) -> list[dict[str, Any]]:
     portfolio = _mapping(data.dashboard_data.get("portfolio"))
     simulation = _mapping(data.dashboard_data.get("simulation"))
-    rows = [
+    return [
         {"Area": "Portfolio", "Metric": "Risk Grade", "Value": portfolio.get("risk_grade", "")},
         {"Area": "Portfolio", "Metric": "Risk Score", "Value": portfolio.get("risk_score", 0.0)},
+        {"Area": "Simulation", "Metric": "Simulation Count", "Value": simulation.get("simulation_count", 0)},
         {"Area": "Simulation", "Metric": "Expected Hit Rate", "Value": simulation.get("expected_hit_rate", 0.0)},
         {"Area": "Simulation", "Metric": "Expected ROI", "Value": simulation.get("expected_roi", 0.0)},
         {"Area": "Simulation", "Metric": "Drawdown Risk", "Value": simulation.get("drawdown_risk", 0.0)},
+        {"Area": "Simulation", "Metric": "Portfolio Volatility", "Value": simulation.get("portfolio_volatility", 0.0)},
         {"Area": "Simulation", "Metric": "Risk Grade", "Value": simulation.get("risk_grade", "")},
     ]
+
+
+def exposure_warning_rows(data: DashboardData) -> list[dict[str, Any]]:
+    portfolio = _mapping(data.dashboard_data.get("portfolio"))
+    full_portfolio = _mapping(data.full_report.get("portfolio"))
+    diversification = _mapping(data.full_report.get("diversification"))
+    rows = []
+    for message in [*(portfolio.get("recommendations", []) or []), *(full_portfolio.get("recommendations", []) or [])]:
+        rows.append({"Type": "Portfolio", "Message": _message(message)})
+    for message in portfolio.get("diversification_recommendations", []) or []:
+        rows.append({"Type": "Diversification", "Message": _message(message)})
+    for message in diversification.get("recommendations", []) or []:
+        rows.append({"Type": "Diversification", "Message": _message(message)})
+    if not rows:
+        rows.append({"Type": "Status", "Message": "No exposure warnings found."})
     return rows
 
 
 def validation_warning_rows(data: DashboardData) -> list[dict[str, Any]]:
     command = _mapping(data.command_center or data.dashboard_data.get("command_center"))
     slate = _mapping(command.get("slate_status"))
-    rows = [{"Type": "Warning", "Message": warning} for warning in command.get("warnings", []) or []]
+    summary = _mapping(slate.get("validation_summary"))
+    rows = []
+    for warning in command.get("warnings", []) or []:
+        warning_type = "Fallback" if "Neutral park factor fallback" in str(warning) else "Warning"
+        rows.append({"Type": warning_type, "Message": warning})
     for game in slate.get("skipped_games", []) or []:
         rows.append(
             {
@@ -107,8 +154,15 @@ def validation_warning_rows(data: DashboardData) -> list[dict[str, Any]]:
                 "Message": f"{game.get('game_id', '')}: {'; '.join(game.get('skipped_reason', []) or [])}",
             }
         )
-    for summary in data.calibration_dashboard.get("validation_summaries", []) or []:
-        rows.append({"Type": "Validation Summary", "Message": summary})
+    for game_id in summary.get("park_factor_fallback_game_ids", []) or []:
+        message = f"{game_id}: Neutral park factor fallback used"
+        if not any(row["Message"] == message for row in rows):
+            rows.append({"Type": "Fallback", "Message": message})
+    failures = _mapping(slate.get("validation_failures"))
+    for key, values in failures.items():
+        rows.append({"Type": "Missing Data", "Message": f"{key}: {', '.join(str(value) for value in values)}"})
+    for summary_text in data.calibration_dashboard.get("validation_summaries", []) or []:
+        rows.append({"Type": "Validation Summary", "Message": summary_text})
     if not rows:
         rows.append({"Type": "Status", "Message": "No validation warnings found."})
     return rows
@@ -132,13 +186,150 @@ def command_center_rows(data: DashboardData) -> list[dict[str, Any]]:
     return rows
 
 
+def provider_health_rows(data: DashboardData) -> list[dict[str, Any]]:
+    command = _mapping(data.command_center or data.dashboard_data.get("command_center"))
+    return list(_mapping(command.get("slate_status")).get("provider_health", []) or [])
+
+
+def generated_output_rows(data: DashboardData) -> list[dict[str, Any]]:
+    execution = _mapping(_mapping(data.command_center).get("execution_summary"))
+    rows = []
+    for path in execution.get("reports_generated", []) or []:
+        rows.append({"Type": "Report", "Path": path})
+    for path in execution.get("exports_generated", []) or []:
+        rows.append({"Type": "Export", "Path": path})
+    for name, path in data.paths.items():
+        rows.append({"Type": name, "Path": path})
+    return rows
+
+
+def scheduler_rows(data: DashboardData) -> list[dict[str, Any]]:
+    scheduler = _mapping(data.dashboard_data.get("scheduler"))
+    tasks = scheduler.get("tasks", []) or []
+    if tasks:
+        return list(tasks)
+    summary = _mapping(_mapping(_mapping(data.command_center).get("formula_health")).get("scheduler_summary"))
+    return [{"Metric": key.replace("_", " ").title(), "Value": value} for key, value in summary.items()]
+
+
 def operator_report_preview(data: DashboardData, *, lines: int = 80) -> str:
     return "\n".join(data.operator_report.splitlines()[:lines])
 
 
+def missing_output_rows(data: DashboardData) -> list[dict[str, Any]]:
+    return [{"Missing": name, "Expected Path": data.paths.get(name, "")} for name in data.missing_files]
+
+
+def _enhanced_batter_rows(data: DashboardData) -> list[dict[str, Any]]:
+    full_by_key = {
+        (str(row.get("batter", "")), str(row.get("team", ""))): row
+        for row in _mapping(data.full_report.get("step3")).get("batter_reviews", []) or []
+    }
+    rows = []
+    for index, row in enumerate(data.dashboard_data.get("batters", []) or [], start=1):
+        rich = full_by_key.get((str(row.get("batter", "")), str(row.get("team", ""))), {})
+        confidence = _mapping(rich.get("confidence"))
+        drivers = _key_drivers(row, rich)
+        rows.append(
+            {
+                "Rank": row.get("rank", index),
+                "Batter": row.get("batter", ""),
+                "Team": row.get("team", ""),
+                "Opponent": row.get("opponent", ""),
+                "Lineup Slot": row.get("lineup_slot", ""),
+                "Russ Score": row.get("russ_score", rich.get("russ_score", 0.0)),
+                "Tier": rich.get("score_band") or row.get("tier", ""),
+                "Confidence": _confidence_label(row),
+                "Confidence Grade": row.get("confidence_grade") or confidence.get("grade", ""),
+                "Key Drivers": ", ".join(drivers),
+                "Non-Superstar Core": bool(rich.get("non_superstar_core") or "non_superstar_core" in row.get("key_factors", [])),
+            }
+        )
+    return rows
+
+
+def _key_drivers(row: Mapping[str, Any], rich: Mapping[str, Any]) -> list[str]:
+    drivers = [str(item).replace("_", " ").title() for item in row.get("key_factors", []) or []]
+    for key, label in [
+        ("tag_contribution", "TAG"),
+        ("cps_contribution", "CPS"),
+        ("pvs_contribution", "PVS"),
+    ]:
+        value = rich.get(key)
+        if isinstance(value, (int, float)) and value:
+            drivers.append(f"{label} {round(float(value), 1)}")
+    return drivers
+
+
+def _full_report_slips(data: DashboardData) -> list[dict[str, Any]]:
+    step5 = _mapping(data.full_report.get("step5"))
+    slips: list[dict[str, Any]] = []
+    for bucket in ["core_slips", "non_superstar_core_slips", "balanced_slips", "chaos_slips", "contrarian_slips"]:
+        for row in step5.get(bucket, []) or []:
+            slips.append(dict(row, slip_bucket=bucket))
+    return slips
+
+
+def _rich_slip_card(slip: Mapping[str, Any]) -> dict[str, Any]:
+    confidence = _mapping(slip.get("confidence"))
+    return {
+        "name": slip.get("name", ""),
+        "confidence": f"{confidence.get('grade', '')} {confidence.get('score', '')}".strip(),
+        "legs": [
+            {
+                "Batter": leg.get("batter", ""),
+                "Team": leg.get("team", ""),
+                "Russ Score": leg.get("russ_score", 0.0),
+                "Confidence": _confidence_label(_mapping(leg.get("confidence"))),
+                "Role": leg.get("slip_role", ""),
+                "Reasoning": leg.get("justification", ""),
+            }
+            for leg in slip.get("legs", []) or []
+        ],
+        "teams": sorted({str(leg.get("team", "")) for leg in slip.get("legs", []) or [] if leg.get("team")}),
+        "justification": slip.get("justification", ""),
+        "risk_warning": _risk_warning(slip),
+    }
+
+
+def _basic_slip_card(slip: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "name": slip.get("name", ""),
+        "confidence": _confidence_label(slip),
+        "legs": [{"Batter": batter, "Team": "", "Russ Score": "", "Confidence": "", "Role": "", "Reasoning": ""} for batter in slip.get("batters", []) or []],
+        "teams": list(slip.get("teams", []) or []),
+        "justification": slip.get("justification", ""),
+        "risk_warning": _risk_warning(slip),
+    }
+
+
+def _risk_warning(slip: Mapping[str, Any]) -> str:
+    confidence = _mapping(slip.get("confidence"))
+    grade = str(confidence.get("grade", slip.get("confidence_grade", "")))
+    if grade in {"Low", "Very Low"}:
+        return f"Confidence warning: {grade} slip."
+    justification = str(slip.get("justification", ""))
+    if "Confidence warning:" in justification:
+        return justification.split("Confidence warning:", 1)[1].strip()
+    return ""
+
+
+def _slip_group(raw: str) -> str:
+    normalized = raw.replace("_slips", "").replace("_", " ").strip().lower()
+    if "non superstar" in normalized or "non-superstar" in normalized:
+        return "Non-Superstar Core"
+    if "balanced" in normalized:
+        return "Balanced"
+    if "chaos" in normalized:
+        return "Chaos"
+    if "contrarian" in normalized:
+        return "Contrarian"
+    return "Core"
+
+
 def _confidence_label(row: Mapping[str, Any]) -> str:
-    grade = row.get("confidence_grade", "")
-    score = row.get("confidence_score", "")
+    grade = row.get("confidence_grade") or row.get("grade", "")
+    score = row.get("confidence_score") or row.get("score", "")
     return f"{grade} {score}".strip()
 
 
@@ -152,6 +343,7 @@ def _display(value: Any) -> str:
     return str(value)
 
 
-def _title(value: str) -> str:
-    return " ".join(part.capitalize() for part in value.split())
-
+def _message(value: Any) -> str:
+    if isinstance(value, Mapping):
+        return str(value.get("message", value))
+    return str(value)
