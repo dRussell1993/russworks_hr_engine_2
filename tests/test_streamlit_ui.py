@@ -5,6 +5,13 @@ from russworks.ui.loaders import available_output_dates, load_dashboard_outputs
 from russworks.ui import views
 
 
+def test_ui_app_imports_with_absolute_package_imports():
+    import russworks.ui.app as app
+
+    assert app.PAGES[0] == "Overview"
+    assert callable(app.render_app)
+
+
 def test_ui_loader_reads_generated_dashboard_outputs(tmp_path):
     _write_ui_fixture(tmp_path, "2026-06-13")
 

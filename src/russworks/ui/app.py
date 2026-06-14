@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .loaders import available_output_dates, load_dashboard_outputs
-from . import views
+from russworks.ui.loaders import available_output_dates, load_dashboard_outputs
+from russworks.ui import views
 
 
 PAGES = [
